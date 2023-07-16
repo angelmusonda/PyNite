@@ -34,6 +34,7 @@ class Member3D():
         self.material = material  # The element's material
         self.E = model.Materials[material].E   # The modulus of elasticity of the element
         self.G = model.Materials[material].G   # The shear modulus of the element
+        self.rho = model.Materials[material].rho   # The density of the material
         self.Iy = Iy          # The y-axis moment of inertia
         self.Iz = Iz          # The z-axis moment of inertia
         self.J = J            # The torsional constant
@@ -118,6 +119,7 @@ class Member3D():
 
         # Return the local stiffness matrix, with end releases applied
         return k_Condensed
+
 
 #%%
     def _k_unc(self):
@@ -207,6 +209,39 @@ class Member3D():
         # Return the local geomtric stiffness matrix, with end releases applied
         return kg_Condensed
     
+#%%
+    def _m_unc(self):
+        """
+        Returns the uncondensed local mass matrix for the member
+        """
+
+        #Get the properties needed to form the member local mass matrix
+        Iy = self.Iy
+        Iz = self.Iz
+        J = self.J
+        A = self.A
+        L = self.L()
+        rho = self.rho
+
+        #Create the uncondensed local mass matrix
+        #Ref: S. S. Quek, G.R. Liu - The Finite Element Method_ A Practical Course-Butterworth-Heinemann (2003) Page 429
+        m = array([[rho*A*L/3,      0,      0,      0,      0,      0, rho*A*L/6,      0,      0,     0,     0,     0],
+                   [0,  13*rho*A*L/35,  0,  0,  0, 11*rho*A*L**2/210,  0, 9*rho*A*L/70,  0,  0, 0, -13*rho*A*L**2/420],
+                   [0,  0, 13*rho*A*L/35,  0, -11*rho*A*L**2/210,  0,  0,  0, 9*rho*A*L/70,  0, 13*rho*A*L**2/420,  0],
+                   [0,      0,      0, rho*L*J/3,       0,       0,       0,       0,     0,  rho*L*J/6,     0,     0],
+                   [0,  0, -11*rho*A*L**2/210,  0, rho*A*L**3/105, 0, 0, 0, -13*rho*A*L**2/420, 0, -rho*A*L**3/140, 0],
+                   [0,  11*rho*A*L**2/210,  0,  0,  0, rho*A*L**3/105, 0, 13*rho*A*L**2/420, 0, 0, 0, -rho*A*L**3/140],
+                   [rho*A*L/6,      0,      0,      0,      0,      0, rho*A*L/3,      0,      0,      0,     0,    0],
+                   [0, 9*rho*A*L/70,  0,  0,  0, 13*rho*A*L**2/420,  0, 13*rho*A*L/35,  0,  0,  0, -11*rho*A*L**2/210],
+                   [0,  0, 9*rho*A*L/70,  0, -13*rho*A*L**2/420,  0,  0,  0, 13*rho*A*L/35,  0,  11*rho*A*L**2/210, 0],
+                   [0,      0,      0, rho*L*J/6,      0,       0,      0,      0,      0, rho*L*J/3,       0,      0],
+                   [0, 0, 13*rho*A*L**2/420,  0, -rho*A*L**3/140,  0,  0,  0, 11*rho*A*L**2/210, 0, rho*A*L**3/105, 0],
+                   [0,  -13*rho*A*L**2/420,  0, 0, 0, -rho*A*L**3/140, 0, -11*rho*A*L**2/210, 0, 0, 0, rho*A*L**3/105]
+                   ])
+
+        # Return the uncondensed local mass matrix
+        return m
+
 #%%
     def fer(self, combo_name='Combo 1'):
         """
