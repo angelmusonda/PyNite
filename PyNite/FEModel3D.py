@@ -51,7 +51,8 @@ class FEModel3D():
         self.LoadCombos.pop(str)
         self._D = {str:[]}                 # A dictionary of the model's nodal displacements by load combination
         self._D.pop(str)
-        
+        self._SHAPE = {str:[]}             # A dictionary of the model's mode shape by modes
+        self._SHAPE.pop(str)
         self.solution = None  # Indicates the solution type for the latest run of the model
 
     @property
@@ -1634,8 +1635,105 @@ class FEModel3D():
             else: self._check_stability(K)
 
         # Return the global stiffness matrix
-        return K    
-   
+        return K
+
+    def M(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
+        """Returns the model's global mass matrix. The mass matrix will be returned in
+           scipy's sparse lil format, which reduces memory usage and can be easily converted to
+           other formats.
+
+        :param combo_name: The load combination to get the mass matrix for. Defaults to 'Combo 1'.
+        :type combo_name: str, optional
+        :param log: Prints updates to the console if set to True. Defaults to False.
+        :type log: bool, optional
+        :param check_stability: Causes Pynite to check for instabilities if set to True. Defaults
+                                to True. Set to False if you want the model to run faster.
+        :type check_stability: bool, optional
+        :param sparse: Returns a sparse matrix if set to True, and a dense matrix otherwise.
+                       Defaults to True.
+        :type sparse: bool, optional
+        :return: The global mass matrix for the structure.
+        :rtype: ndarray or coo_matrix
+        """
+        # Determine if a sparse matrix has been requested
+        if sparse == True:
+            # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
+            # documentation states that this type of matrix is ideal for efficient
+            # construction of finite element matrices. When converted to another
+            # format, the `coo_matrix` sums values at the same (i, j) index. We'll
+            # build the matrix from three lists.
+            row = []
+            col = []
+            data = []
+        else:
+            # Initialize a dense matrix of zeros
+            M = zeros((len(self.Nodes)*6, len(self.Nodes)*6))
+
+        # Add mass terms for each physical member in the model
+        if log: print('- Adding member mass terms to global mass matrix')
+        for phys_member in self.Members.values():
+
+            # Check to see if the physical member is active for the given load combination
+            if phys_member.active[combo_name] == True:
+
+                # Step through each sub-member in the physical member and add terms
+                for member in phys_member.sub_members.values():
+
+                    # Get the member's global mass matrix
+                    # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
+                    member_M = member.M()
+
+                    # Step through each term in the member's mass matrix
+                    # 'a' & 'b' below are row/column indices in the member's mass matrix
+                    # 'm' & 'n' are corresponding row/column indices in the global mass matrix
+                    for a in range(12):
+
+                        # Determine if index 'a' is related to the i-node or j-node
+                        if a < 6:
+                            # Find the corresponding index 'm' in the global mass matrix
+                            m = member.i_node.ID * 6 + a
+                        else:
+                            # Find the corresponding index 'm' in the global mass matrix
+                            m = member.j_node.ID * 6 + (a - 6)
+
+                        for b in range(12):
+
+                            # Determine if index 'b' is related to the i-node or j-node
+                            if b < 6:
+                                # Find the corresponding index 'n' in the global mass matrix
+                                n = member.i_node.ID * 6 + b
+                            else:
+                                # Find the corresponding index 'n' in the global mass matrix
+                                n = member.j_node.ID * 6 + (b - 6)
+
+                            # Now that 'm' and 'n' are known, place the term in the global mass matrix
+                            if sparse == True:
+                                row.append(m)
+                                col.append(n)
+                                data.append(member_M[a, b])
+                            else:
+                                M[m, n] += member_M[a, b]
+
+        if sparse:
+            # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
+            # documentation states that this type of matrix is ideal for efficient
+            # construction of finite element matrices. When converted to another
+            # format, the `coo_matrix` sums values at the same (i, j) index.
+            from scipy.sparse import coo_matrix
+            row = array(row)
+            col = array(col)
+            data = array(data)
+            M = coo_matrix((data, (row, col)), shape=(len(self.Nodes)*6, len(self.Nodes)*6))
+
+        # Check that there are no nodal instabilities
+        if check_stability:
+            if log: print('- Checking nodal stability')
+            if sparse: self._check_stability(M.tocsr())
+            else: self._check_stability(M)
+
+        # Return the global mass matrix
+        return M
+
     def Kg(self, combo_name='Combo 1', log=False, sparse=True):
         """Returns the model's global geometric stiffness matrix. The model must have a static
            solution prior to obtaining the geometric stiffness matrix. Stiffness of plates is not
