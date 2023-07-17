@@ -548,6 +548,15 @@ class Member3D():
         return matmul(matmul(inv(self.T()), self.k()), self.T())
 
 #%%
+    # Member global mass matrix
+    def M(self):
+        # Calculate and return the mass matrix in global coordinates
+        # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
+        # practice for numerical computation
+        return matmul(solve(self.T(), self.k()), self.T())
+
+
+#%%
     # Member global geometric stiffness matrix
     def Kg(self, P=0):
         
