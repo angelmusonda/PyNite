@@ -3,9 +3,11 @@ from os import rename
 import warnings
 from math import isclose
 
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort
 from numpy import seterr
 from numpy.linalg import solve
+from scipy.sparse.linalg import eigs, eigsh
+from scipy.sparse import csr_matrix
 
 from PyNite.Node3D import Node3D
 from PyNite.Material import Material
@@ -2843,6 +2845,104 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = 'P-Delta'
 
+    def analyze_modal(self,log=False, check_stability=True,num_modes=1, tol=0.01, sparse=True):
+        """Performs modal analysis.
+
+        :param log: Prints the analysis log to the console if set to True. Default is False.
+        :type log: bool, optional
+        :param check_stability: When set to True, checks the stiffness matrix for any unstable degrees of freedom and reports them back to the console. This does add to the solution time. Defaults to True.
+        :type check_stability: bool, optional
+        :para num_modes: The number of modes required
+        :type num_modes: int, optional
+        :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
+        :type sparse: bool, optional
+        :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
+        """
+
+        if log:
+            print('+-------------------+')
+            print('| Analyzing: Modal  |')
+            print('+-------------------+')
+
+        # Import `scipy` features if the sparse solver is being used
+        if sparse == True:
+            from scipy.sparse.linalg import spsolve
+
+        # Generate all meshes
+        for mesh in self.Meshes.values():
+            if mesh.is_generated == False:
+                mesh.generate()
+
+        # Activate all springs
+        for spring in self.Springs.values():
+            spring.active = True
+
+        # Activate all physical members
+        for phys_member in self.Members.values():
+            phys_member.active = True
+
+        # Assign an internal ID to all nodes and elements in the model
+        self._renumber()
+
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2 = self._aux_list()
+
+        # Get the partitioned global stiffness and mass matrix
+        combo_name = list(self.LoadCombos.keys())[0]
+        if sparse == True:
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
+        else:
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, check_stability, sparse), D1_indices, D2_indices)
+
+        if log:
+            print('')
+            print('- Calculating modes ')
+
+        eigVal = [] #Vector to store eigenvalues
+        eigVec = [] #Matrix to store eigenvectors
+
+        if K11.shape() == (0,0):
+            if log: print('The model does not have any degree of freedom')
+        elif num_modes<1:
+            raise Exception("The number of modes should be atleast 1")
+        else:
+            try:
+                if sparse == True:
+                    # The partitioned matrices are in `lil` format, which is great
+                    # for memory, but slow for mathematical operations. The stiffness
+                    # matrix will be converted to `csr` format for mathematical operations.
+                    if num_modes == K11.shape:
+                        # If all mode shapes are required, the matrices are converted to dense
+                        # and format in order to use eig(), the structure is probably small.
+                        from scipy.linalg import eig
+                        eigVal, eigVec = eig(K11.tocsr().toarray(), M11.tocsr().toarray())
+
+                    else:
+                        # Calculate only the first num_modes modes.
+                        eigVal, eigVec = eigs(K11.tocsr(), num_modes, M11.tocsr(), sigma=-1)
+
+                else:
+                    if num_modes == K11.shape:
+                        # If all mode shapes are required, the matrices are converted to dense
+                        # and format in order to use eig(), the structure is probably small.
+                        from scipy.linalg import eig
+                        eigVal, eigVec = eig(K11, M11)
+                    else:
+                        # To calculate only some modes, convert to sparse and use eigs()
+                        eigVal, eigVec = eigs(csr_matrix(K11), num_modes, csr_matrix(M11), sigma=-1)
+            except:
+                raise Exception(
+                    'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
+
+        # Sort the eigenvalues to start from the lowest
+        sort_indices = argsort(eigVal)
+        eigVal = eigVal[sort_indices]
+
+        # Use the same order from above to sort the corresponding eigenvectors
+        eigVec = eigVec[:, sort_indices]
+
     def _calc_reactions(self, log=False):
         """
         Calculates reactions internally once the model is solved.
@@ -3371,4 +3471,3 @@ class FEModel3D():
                 orphans.append(node.name)
         
         return orphans
-      
