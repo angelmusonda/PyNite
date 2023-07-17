@@ -1,6 +1,6 @@
 # %%
-from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace
-from numpy.linalg import inv
+from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, transpose
+from numpy.linalg import inv, solve
 from math import isclose
 from PyNite.BeamSegZ import BeamSegZ
 from PyNite.BeamSegY import BeamSegY
@@ -208,6 +208,38 @@ class Member3D():
 
         # Return the local geomtric stiffness matrix, with end releases applied
         return kg_Condensed
+
+
+#%%
+    def m(self):
+        """
+        Returns the condensed (and expanded) local mass matrix for the member.
+        """
+
+        # Partition the local stiffness matrix as 4 submatrices in
+        # preparation for static condensation
+        k11, k12, k21, k22 = self._partition(self._k_unc())
+        m11, m12, m21, m22 = self._partition(self._m_unc())
+        # Calculate the condensed local mass matrix
+        # We are avoiding inv() by using solve(), since it is more stable
+        # inv(A)*B is the same as solve(A,B)
+        m_Condensed = subtract(m11,
+                               matmul(m12, solve(k22, k21)),
+                               matmul(transpose(solve(k22, k21)),
+                                      subtract(m21, matmul(m22, solve(k22, k21))))
+                               )
+        # Expand the condensed local mass matrix
+        i = 0
+        for DOF in self.Releases:
+
+            if DOF == True:
+                m_Condensed = insert(m_Condensed, i, 0, axis=0)
+                m_Condensed = insert(m_Condensed, i, 0, axis=1)
+
+            i += 1
+
+        # Return the local stiffness matrix, with end releases applied
+        return m_Condensed
     
 #%%
     def _m_unc(self):
@@ -216,8 +248,6 @@ class Member3D():
         """
 
         #Get the properties needed to form the member local mass matrix
-        Iy = self.Iy
-        Iz = self.Iz
         J = self.J
         A = self.A
         L = self.L()
