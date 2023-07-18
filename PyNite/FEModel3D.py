@@ -4,7 +4,7 @@ import warnings
 from math import isclose
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort
-from numpy import seterr
+from numpy import seterr, real, pi, sqrt
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix
@@ -53,8 +53,10 @@ class FEModel3D():
         self.LoadCombos.pop(str)
         self._D = {str:[]}                 # A dictionary of the model's nodal displacements by load combination
         self._D.pop(str)
-        self._SHAPE = {str:[]}             # A dictionary of the model's mode shape by modes
-        self._SHAPE.pop(str)
+        self._SHAPE = {int:[]}             # A dictionary of the model's mode shape by modes
+        self._SHAPE.pop(int)
+        self.Active_Mode = 1               # A variable to keep track of the active mode
+        self.Natural_Frequencies = []      # A list to store the calculated natural frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
 
     @property
@@ -1032,8 +1034,10 @@ class FEModel3D():
         :type factors: dict
         :param combo_type: A description of the type of load combination (e.g. 'strength', 'service'). This has no effect on the analysis. It can be used to mark special combinations for easier filtering through them later on. Defaults to 'service'.
         :type combo_type: str, optional
-        """            
-
+        """
+        # always add this placeholder load combination incase of modal analysis
+        if 'Modal Combo' not in self.LoadCombos.keys():
+            self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 1.0})
         # Create a new load combination object
         new_combo = LoadCombo(name, combo_type, factors)
 
@@ -2868,6 +2872,10 @@ class FEModel3D():
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
+        # Add a modal load combination
+        if self.LoadCombos == {}:
+            self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 1.0})
+
         # Generate all meshes
         for mesh in self.Meshes.values():
             if mesh.is_generated == False:
@@ -2875,11 +2883,11 @@ class FEModel3D():
 
         # Activate all springs
         for spring in self.Springs.values():
-            spring.active = True
+            spring.active['Modal Combo'] = True
 
         # Activate all physical members
         for phys_member in self.Members.values():
-            phys_member.active = True
+            phys_member.active['Modal Combo'] = True
 
         # Assign an internal ID to all nodes and elements in the model
         self._renumber()
@@ -2887,8 +2895,10 @@ class FEModel3D():
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
 
+        # In the context of mode shapes, D2 should just be zeroes
+        D2 = zeros((len(D2),1))
         # Get the partitioned global stiffness and mass matrix
-        combo_name = list(self.LoadCombos.keys())[0]
+        combo_name = "Modal Combo"
         if sparse == True:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
@@ -2900,10 +2910,10 @@ class FEModel3D():
             print('')
             print('- Calculating modes ')
 
-        eigVal = [] #Vector to store eigenvalues
-        eigVec = [] #Matrix to store eigenvectors
+        eigVal = None   #Vector to store eigenvalues
+        eigVec = None   #Matrix to store eigenvectors
 
-        if K11.shape() == (0,0):
+        if K11.shape == (0,0):
             if log: print('The model does not have any degree of freedom')
         elif num_modes<1:
             raise Exception("The number of modes should be atleast 1")
@@ -2913,28 +2923,36 @@ class FEModel3D():
                     # The partitioned matrices are in `lil` format, which is great
                     # for memory, but slow for mathematical operations. The stiffness
                     # matrix will be converted to `csr` format for mathematical operations.
-                    if num_modes == K11.shape:
+                    if num_modes == K11.shape[0]:
                         # If all mode shapes are required, the matrices are converted to dense
                         # and format in order to use eig(), the structure is probably small.
                         from scipy.linalg import eig
-                        eigVal, eigVec = eig(K11.tocsr().toarray(), M11.tocsr().toarray())
+                        eigVal, eigVec = eig(a=K11.tocsr().toarray(), b=M11.tocsr().toarray())
 
                     else:
                         # Calculate only the first num_modes modes.
-                        eigVal, eigVec = eigs(K11.tocsr(), num_modes, M11.tocsr(), sigma=-1)
+                        eigVal, eigVec = eigs(tol = tol,A=K11.tocsr(), k=num_modes, M=M11.tocsr(), sigma=-1)
 
                 else:
-                    if num_modes == K11.shape:
+                    if num_modes == K11.shape[0]:
                         # If all mode shapes are required, the matrices are converted to dense
                         # and format in order to use eig(), the structure is probably small.
                         from scipy.linalg import eig
-                        eigVal, eigVec = eig(K11, M11)
+                        eigVal, eigVec = eig(a=K11.tocsr().toarray(), b = M11.tocsr().toarray())
                     else:
                         # To calculate only some modes, convert to sparse and use eigs()
-                        eigVal, eigVec = eigs(csr_matrix(K11), num_modes, csr_matrix(M11), sigma=-1)
+                        eigVal, eigVec = eigs(tol = tol,A = csr_matrix(K11), k = num_modes, M = csr_matrix(M11), sigma=-1)
             except:
                 raise Exception(
                     'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
+
+        # The functions used to calculate the eigenvalues and eigenvectors are iterative
+        # Hence they have a tendence to return complex numbers even though we do not expect
+        # results of that nature in simple modal analysis
+        # The complex parts of the results are very small, so we will only extract the real part
+
+        eigVal = real(eigVal)
+        eigVec = real(eigVec)
 
         # Sort the eigenvalues to start from the lowest
         sort_indices = argsort(eigVal)
@@ -2942,6 +2960,166 @@ class FEModel3D():
 
         # Use the same order from above to sort the corresponding eigenvectors
         eigVec = eigVec[:, sort_indices]
+
+        # Calculate and store the natural frequencies
+        self.Natural_Frequencies = [sqrt(eig_val)/(2*pi) for eig_val in eigVal]
+
+        # Store the calculated modal displacements
+        self._SHAPE = real(eigVec)
+
+        # Form the global displacement vector, D, from D1 and D2
+        D1 = eigVec[:,self.Active_Mode-1].reshape((-1,1))
+        D = zeros((len(self.Nodes) * 6, 1))
+
+        for node in self.Nodes.values():
+
+            if D2_indices.count(node.ID * 6 + 0) == 1:
+                D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+            else:
+                D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
+
+            if D2_indices.count(node.ID * 6 + 1) == 1:
+                D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+            else:
+                D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
+
+            if D2_indices.count(node.ID * 6 + 2) == 1:
+                D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+            else:
+                D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
+
+            if D2_indices.count(node.ID * 6 + 3) == 1:
+                D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+            else:
+                D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
+
+            if D2_indices.count(node.ID * 6 + 4) == 1:
+                D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+            else:
+                D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+
+            if D2_indices.count(node.ID * 6 + 5) == 1:
+                D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+            else:
+                D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+
+
+        # Store the calculated global nodal modal displacements into each node
+        for node in self.Nodes.values():
+            node.DX[combo_name] = D[node.ID * 6 + 0, 0]
+            node.DY[combo_name] = D[node.ID * 6 + 1, 0]
+            node.DZ[combo_name] = D[node.ID * 6 + 2, 0]
+            node.RX[combo_name] = D[node.ID * 6 + 3, 0]
+            node.RY[combo_name] = D[node.ID * 6 + 4, 0]
+            node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
+
+            #return eigVec[:,0].reshape((-1,1))
+        if log:
+            print('')
+            print('- Analysis complete')
+            print('')
+
+        # Flag the model as solved
+        self.solution = 'Modal'
+        #return self.Natural_Frequencies[0]
+
+    def set_active_mode(self, active_mode):
+        """
+        Sets the active mode
+
+        Parameters
+        ---------
+        active_mode : int
+            The mode to set active
+        """
+
+        # Check if modal analysis results are available
+        if self.solution == 'Modal':
+            # Check that the requested mode is among the calculated modes
+            calculated_modes = self._SHAPE.shape[0]
+            if active_mode>calculated_modes:
+                # If a higher mode is selected, set the maximum calculated mode as active
+                active_mode = calculated_modes
+            elif active_mode<1:
+                # Sets the active mode to 1 if a negative number is entered
+                active_mode = 1
+
+            # Set the active mode finally
+            self.Active_Mode = active_mode
+
+            # Set the combination name
+            combo_name = 'Modal Combo'
+
+            # Form the global displacement vector, D, from D1 and D2
+            # Get the free and constrained indices
+            D1_indices, D2_indices, D2 = self._aux_list()
+
+            # Set zero modal displacements to the constrained DOFs
+            D2 = zeros((len(D2), 1))
+
+            # From the calculated modal displacements, select the required
+            D1 = self._SHAPE[:,active_mode-1].reshape((-1,1))
+
+            # Initialise the global modal displacements
+            D = zeros((len(self.Nodes) * 6, 1))
+
+            # The global modal displacement vector can now be formed
+            for node in self.Nodes.values():
+
+                if D2_indices.count(node.ID * 6 + 0) == 1:
+                    D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+                else:
+                    D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
+
+                if D2_indices.count(node.ID * 6 + 1) == 1:
+                    D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+                else:
+                    D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
+
+                if D2_indices.count(node.ID * 6 + 2) == 1:
+                    D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+                else:
+                    D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
+
+                if D2_indices.count(node.ID * 6 + 3) == 1:
+                    D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+                else:
+                    D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
+
+                if D2_indices.count(node.ID * 6 + 4) == 1:
+                    D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+                else:
+                    D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+
+                if D2_indices.count(node.ID * 6 + 5) == 1:
+                    D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+                else:
+                    D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+
+            # Store the calculated global nodal modal displacements into each node
+            for node in self.Nodes.values():
+                node.DX[combo_name] = D[node.ID * 6 + 0, 0]
+                node.DY[combo_name] = D[node.ID * 6 + 1, 0]
+                node.DZ[combo_name] = D[node.ID * 6 + 2, 0]
+                node.RX[combo_name] = D[node.ID * 6 + 3, 0]
+                node.RY[combo_name] = D[node.ID * 6 + 4, 0]
+                node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
+
+        else:
+            raise Exception('Modal analysis results are not available')
+
+    def natural_frequency(self, mode=None):
+        # Check the results availability
+        if self.solution == "Modal":
+            if mode is None:
+                mode = self.Active_Mode
+            elif mode>len(self.Natural_Frequencies):
+                mode = len(self.Natural_Frequencies)
+            elif mode<1:
+                mode = 1
+        else:
+            raise Exception('Modal analysis results are not available')
+        return self.Natural_Frequencies[mode - 1]
 
     def _calc_reactions(self, log=False):
         """
