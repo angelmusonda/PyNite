@@ -553,7 +553,7 @@ class Member3D():
         # Calculate and return the mass matrix in global coordinates
         # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
         # practice for numerical computation
-        return matmul(solve(self.T(), self.k()), self.T())
+        return matmul(solve(self.T(), self.m()), self.T())
 
 
 #%%
