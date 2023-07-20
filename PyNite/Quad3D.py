@@ -47,6 +47,7 @@ class Quad3D():
         try:
             self.E = self.model.Materials[material].E
             self.nu = self.model.Materials[material].nu
+            self.rho = self.model.Materials[material].rho
         except:
             raise KeyError('Please define the material ' + str(material) + ' before assigning it to plates.')
 
@@ -472,7 +473,180 @@ class Quad3D():
         # Sum the bending and membrane stiffness matrices
         return add(self.k_b(), self.k_m())
 
-#%%   
+#%%
+    def H_m(self, r, s):
+        """
+        Returns the shape (interpolation) function for a plane stress quad element
+        """
+        H1 = 0.25*(1+r)*(1+s)
+        H2 = 0.25*(1-r)*(1+s)
+        H3 = 0.25*(1-r)*(1-s)
+        H4 = 0.25*(1+r)*(1-s)
+        return array([H1,  0, H2,  0, H3,  0, H4, 0],
+                     [ 0, H1,  0, H2,  0, H3,  0, H4])
+
+#%%
+    def m_m(self):
+        """
+        Returns the local mass matrix for membrane action
+        """
+        #Ref: S.S.Quek (2003) The Finite Element Method, A Practical Course - Page 152
+
+        t = self.t
+
+        # Define the gauss point for numerical integration
+        gp = 1 / 3 ** 0.5
+
+        # Get the membrane shape function for each gauss point
+        H1 = self.H_m(gp, gp)
+        H2 = self.H_m(-gp, gp)
+        H3 = self.H_m(-gp, -gp)
+        H4 = self.H_m(gp, -gp)
+
+        # Get the jacobian at each gauss point
+        det_J1 = det(self.J(gp, gp))
+        det_J2 = det(self.J(-gp, gp))
+        det_J3 = det(self.J(-gp, -gp))
+        det_J4 = det(self.J(gp, -gp))
+
+        # Calculate the 8 by 8 matrix corresponding to 2 degrees of freedom at each node
+        rho = self.rho
+        t = self.t
+
+        mass_matrix = rho * t * (matmul(H1.T, H1)*det_J1 +
+                                 matmul(H2.T, H2)*det_J2 +
+                                 matmul(H3.T, H3)*det_J3 +
+                                 matmul(H4.T, H4)*det_J4)
+
+        # We need to put this in a 24 by 24 matrix since thats the final size we want
+        m_exp = zeros((24,24))
+
+
+        # Step through each term in the unexpanded mass matrix
+        # i = Unexpanded matrix row
+        for i in range(8):
+
+            # j = Unexpanded matrix column
+            for j in range(8):
+
+                # Find the corresponding term in the expanded mass
+                # matrix
+
+                # m = Expanded matrix row
+                if i in [0, 2, 4, 6]:  # indices associated with displacement in x
+                    m = i * 3
+                if i in [1, 3, 5, 7]:  # indices associated with displacement in y
+                    m = i * 3 - 2
+
+                # n = Expanded matrix column
+                if j in [0, 2, 4, 6]:  # indices associated with displacement in x
+                    n = j * 3
+                if j in [1, 3, 5, 7]:  # indices associated with displacement in y
+                    n = j * 3 - 2
+
+                # Ensure the indices are integers rather than floats
+                m, n = round(m), round(n)
+
+                # Add the term from the unexpanded matrix into the expanded matrix
+                m_exp[m, n] = mass_matrix[i, j]
+
+        return m_exp
+
+#%%
+    def H_b(self, r, s):
+        """
+        Returns the shape function for plate bending element
+        """
+        # Shape functions
+        H1 = 0.25*(1+r)*(1+s)
+        H2 = 0.25*(1-r)*(1+s)
+        H3 = 0.25*(1-r)*(1-s)
+        H4 = 0.25*(1+r)*(1-s)
+        return array([H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0,  0],
+                     [ 0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0]
+                     [ 0,  0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4])
+
+    def m_b(self):
+        """
+        Returns the element mass matrix for bending action
+        """
+        #Ref: S.S.Quek (2003) The Finite Element Method, A Practical Course - Page 178
+
+        t = self.t
+
+        # Define the gauss point for numerical integration
+        gp = 1 / 3 ** 0.5
+
+        # Get the membrane shape function for each gauss point
+        H1 = self.H_b(gp, gp)
+        H2 = self.H_b(-gp, gp)
+        H3 = self.H_b(-gp, -gp)
+        H4 = self.H_b(gp, -gp)
+
+        # Get the jacobian at each gauss point
+        det_J1 = det(self.J(gp, gp))
+        det_J2 = det(self.J(-gp, gp))
+        det_J3 = det(self.J(-gp, -gp))
+        det_J4 = det(self.J(gp, -gp))
+
+        # Calculate the 12 by 12 matrix corresponding to 3 degrees of freedom at each node
+        rho = self.rho
+        t = self.t
+
+        I = array([[t,    0,       0      ],
+                   [0,    t**3/12, 0      ],
+                   [0,    0,       t**3/12]])
+
+        mass_matrix = rho * (matmul(H1.T, matmul(I, H1)) * det_J1 +
+                             matmul(H2.T, matmul(I, H2)) * det_J2 +
+                             matmul(H3.T, matmul(I, H3)) * det_J3 +
+                             matmul(H4.T, matmul(I, H4)) * det_J4)
+
+        # We need to put this in a 24 by 24 matrix since thats the final size we want
+        m_exp = zeros((24, 24))
+
+        # Step through each term in the unexpanded mass matrix
+        # i = Unexpanded matrix row
+        for i in range(12):
+
+            # j = Unexpanded matrix column
+            for j in range(12):
+
+                # Find the corresponding term in the expanded mass
+                # matrix
+
+                # m = Expanded matrix row
+                if i in [0, 3, 6, 9]:  # indices associated with deflection in z
+                    m = 2 * i + 2
+                if i in [1, 4, 7, 10]:  # indices associated with rotation about x
+                    m = 2 * i + 1
+                if i in [2, 5, 8, 11]:  # indices associated with rotation about y
+                    m = 2 * i
+
+                # n = Expanded matrix column
+                if j in [0, 3, 6, 9]:  # indices associated with deflection in z
+                    n = 2 * j + 2
+                if j in [1, 4, 7, 10]:  # indices associated with rotation about x
+                    n = 2 * j + 1
+                if j in [2, 5, 8, 11]:  # indices associated with rotation about y
+                    n = 2 * j
+
+                # Ensure the indices are integers rather than floats
+                m, n = round(m), round(n)
+
+                # Add the term from the unexpanded matrix into the expanded
+                # matrix
+                m_exp[m, n] = mass_matrix[i, j]
+
+        # Add the drilling degree of freedom's weak spring
+        #k_exp[5, 5] = k_rz
+        #k_exp[11, 11] = k_rz
+        #k_exp[17, 17] = k_rz
+        #k_exp[23, 23] = k_rz
+
+        return m_exp
+
+    #%%
     def f(self, combo_name='Combo 1'):
         """
         Returns the quad element's local end force vector
