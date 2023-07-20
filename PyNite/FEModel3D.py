@@ -1035,9 +1035,7 @@ class FEModel3D():
         :param combo_type: A description of the type of load combination (e.g. 'strength', 'service'). This has no effect on the analysis. It can be used to mark special combinations for easier filtering through them later on. Defaults to 'service'.
         :type combo_type: str, optional
         """
-        # always add this placeholder load combination incase of modal analysis
-        if 'Modal Combo' not in self.LoadCombos.keys():
-            self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 1.0})
+
         # Create a new load combination object
         new_combo = LoadCombo(name, combo_type, factors)
 
@@ -2872,8 +2870,8 @@ class FEModel3D():
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
-        # Add a modal load combination
-        if self.LoadCombos == {}:
+        # Add a modal load combination if not present
+        if 'Modal Combo' not in self.LoadCombos:
             self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 1.0})
 
         # Generate all meshes
