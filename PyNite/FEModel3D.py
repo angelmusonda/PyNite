@@ -1718,11 +1718,11 @@ class FEModel3D():
                             else:
                                 M[m, n] += member_M[a, b]
 
-        # Add stiffness terms for each quadrilateral in the model
-        if log: print('- Adding quadrilateral mass terms to global stiffness matrix')
+        # Add mass terms for each quadrilateral in the model
+        if log: print('- Adding quadrilateral mass terms to global mass matrix')
         for quad in self.Quads.values():
 
-            # Get the quadrilateral's global stiffness matrix
+            # Get the quadrilateral's global mass matrix
             # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
             quad_M = quad.M()
 
@@ -1768,6 +1768,57 @@ class FEModel3D():
                         data.append(quad_M[a, b])
                     else:
                         M[m, n] += quad_M[a, b]
+
+        # Add mass terms for each plate in the model
+        if log: print('- Adding plate mass terms to global stiffness matrix')
+        for plate in self.Plates.values():
+
+            # Get the plate's global mass matrix
+            # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
+            plate_M = plate.M()
+
+            # Step through each term in the plate's mass matrix
+            # 'a' & 'b' below are row/column indices in the plate's mass matrix
+            # 'm' & 'n' are corresponding row/column indices in the global mass matrix
+            for a in range(24):
+
+                # Determine which node the index 'a' is related to
+                if a < 6:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = plate.i_node.ID * 6 + a
+                elif a < 12:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = plate.j_node.ID * 6 + (a - 6)
+                elif a < 18:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = plate.m_node.ID * 6 + (a - 12)
+                else:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = plate.n_node.ID * 6 + (a - 18)
+
+                for b in range(24):
+
+                    # Determine which node the index 'b' is related to
+                    if b < 6:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = plate.i_node.ID * 6 + b
+                    elif b < 12:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = plate.j_node.ID * 6 + (b - 6)
+                    elif b < 18:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = plate.m_node.ID * 6 + (b - 12)
+                    else:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = plate.n_node.ID * 6 + (b - 18)
+
+                    # Now that 'm' and 'n' are known, place the term in the global mass matrix
+                    if sparse == True:
+                        row.append(m)
+                        col.append(n)
+                        data.append(plate_M[a, b])
+                    else:
+                        M[m, n] += plate_M[a, b]
 
         if sparse:
             # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
