@@ -1718,6 +1718,57 @@ class FEModel3D():
                             else:
                                 M[m, n] += member_M[a, b]
 
+        # Add stiffness terms for each quadrilateral in the model
+        if log: print('- Adding quadrilateral mass terms to global stiffness matrix')
+        for quad in self.Quads.values():
+
+            # Get the quadrilateral's global stiffness matrix
+            # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
+            quad_M = quad.M()
+
+            # Step through each term in the quadrilateral's mass matrix
+            # 'a' & 'b' below are row/column indices in the quadrilateral's mass matrix
+            # 'm' & 'n' are corresponding row/column indices in the global mass matrix
+            for a in range(24):
+
+                # Determine which node the index 'a' is related to
+                if a < 6:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = quad.m_node.ID * 6 + a
+                elif a < 12:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = quad.n_node.ID * 6 + (a - 6)
+                elif a < 18:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = quad.i_node.ID * 6 + (a - 12)
+                else:
+                    # Find the corresponding index 'm' in the global mass matrix
+                    m = quad.j_node.ID * 6 + (a - 18)
+
+                for b in range(24):
+
+                    # Determine which node the index 'b' is related to
+                    if b < 6:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = quad.m_node.ID * 6 + b
+                    elif b < 12:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = quad.n_node.ID * 6 + (b - 6)
+                    elif b < 18:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = quad.i_node.ID * 6 + (b - 12)
+                    else:
+                        # Find the corresponding index 'n' in the global mass matrix
+                        n = quad.j_node.ID * 6 + (b - 18)
+
+                    # Now that 'm' and 'n' are known, place the term in the global mass matrix
+                    if sparse == True:
+                        row.append(m)
+                        col.append(n)
+                        data.append(quad_M[a, b])
+                    else:
+                        M[m, n] += quad_M[a, b]
+
         if sparse:
             # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
             # documentation states that this type of matrix is ideal for efficient
@@ -2847,7 +2898,7 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = 'P-Delta'
 
-    def analyze_modal(self,log=False, check_stability=True,num_modes=1, tol=0.01, sparse=True):
+    def analyze_modal(self,log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True):
         """Performs modal analysis.
 
         :param log: Prints the analysis log to the console if set to True. Default is False.
@@ -2899,10 +2950,16 @@ class FEModel3D():
         combo_name = "Modal Combo"
         if sparse == True:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
+            # We will not check for stability of the mass matrix. check_stability will be set to False
+            # This is because for the shell elements, the mass matrix has zeroes
+            # on the rotation about z-axis DOFs
+            # Only the stiffness matrix is modified to account for this 'drilling' effect
+            # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
+            # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse).tolil(), D1_indices, D2_indices)
         else:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, check_stability, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse), D1_indices, D2_indices)
 
         if log:
             print('')
