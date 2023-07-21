@@ -482,8 +482,8 @@ class Quad3D():
         H2 = 0.25*(1-r)*(1+s)
         H3 = 0.25*(1-r)*(1-s)
         H4 = 0.25*(1+r)*(1-s)
-        return array([H1,  0, H2,  0, H3,  0, H4, 0],
-                     [ 0, H1,  0, H2,  0, H3,  0, H4])
+        return array([[H1,  0, H2,  0, H3,  0, H4, 0],
+                     [ 0, H1,  0, H2,  0, H3,  0, H4]])
 
 #%%
     def m_m(self):
@@ -562,9 +562,9 @@ class Quad3D():
         H2 = 0.25*(1-r)*(1+s)
         H3 = 0.25*(1-r)*(1-s)
         H4 = 0.25*(1+r)*(1-s)
-        return array([H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0,  0],
-                     [ 0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0]
-                     [ 0,  0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4])
+        return array([[H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0,  0],
+                     [ 0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0],
+                     [ 0,  0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4]])
 
     def m_b(self):
         """
@@ -645,8 +645,20 @@ class Quad3D():
         #k_exp[23, 23] = k_rz
 
         return m_exp
+#%%
+    def m(self):
+        '''
+        Returns the quad element's local mass matrix.
+        '''
 
-    #%%
+        # Recalculate the local coordinate system
+        self._local_coords()
+
+        # Sum the bending and membrane stiffness matrices
+        return add(self.m_b(), self.m_m())
+
+
+#%%
     def f(self, combo_name='Combo 1'):
         """
         Returns the quad element's local end force vector
@@ -804,6 +816,18 @@ class Quad3D():
 
         # Calculate and return the stiffness matrix in global coordinates
         return matmul(matmul(inv(T), self.k()), T)
+
+#%%
+    def M(self):
+        '''
+        Returns the quad element's global mass matrix
+        '''
+
+        # Get the transformation matrix
+        T = self.T()
+
+        # Calculate and return the stiffness matrix in global coordinates
+        return matmul(matmul(inv(T), self.m()), T)
 
 #%% 
     # Global fixed end reaction vector
