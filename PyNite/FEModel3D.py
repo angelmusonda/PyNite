@@ -3,11 +3,11 @@ from os import rename
 import warnings
 from math import isclose
 
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort
-from numpy import seterr, real, pi, sqrt
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
+from numpy import seterr, real, pi, sqrt , ndarray
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, lil_matrix
 
 from PyNite.Node3D import Node3D
 from PyNite.Material import Material
@@ -57,6 +57,9 @@ class FEModel3D():
         self._SHAPE.pop(int)
         self.Active_Mode = 1               # A variable to keep track of the active mode
         self.Natural_Frequencies = []      # A list to store the calculated natural frequencies
+        self._Max_D_Harmonic = []  # A dictionary of the models maximum displacements per load frequency
+
+        self.LoadOmega = []                # A list to store the calculated natural frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
 
     @property
@@ -2958,6 +2961,8 @@ class FEModel3D():
         :type check_stability: bool, optional
         :para num_modes: The number of modes required
         :type num_modes: int, optional
+        :para tol: The required accuracy in the results
+        :type tol: float, optional
         :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
         :type sparse: bool, optional
         :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
@@ -3022,7 +3027,7 @@ class FEModel3D():
         if K11.shape == (0,0):
             if log: print('The model does not have any degree of freedom')
         elif num_modes<1:
-            raise Exception("The number of modes should be atleast 1")
+            raise Exception("The model does not have any degree of freedom")
         else:
             try:
                 if sparse == True:
@@ -3068,7 +3073,8 @@ class FEModel3D():
         eigVec = eigVec[:, sort_indices]
 
         # Calculate and store the natural frequencies
-        self.Natural_Frequencies = [sqrt(eig_val)/(2*pi) for eig_val in eigVal]
+        self.Natural_Frequencies = array([sqrt(eig_val)/(2*pi) for eig_val in eigVal])
+
 
         # Store the calculated modal displacements
         self._SHAPE = real(eigVec)
@@ -3128,6 +3134,242 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = 'Modal'
         #return self.Natural_Frequencies[0]
+
+    def analyze_harmonic(self, harmonic_combo, f1, f2 ,f_div , num_modes, damping_ratio_1, damping_ratio_2 = None,
+                         static_combo = None, log=False, check_stability=True, check_statics=False,tol = 0.01, sparse=True):
+        """Performs harmonic analysis for given harmonic load combination and load frequency. It begins by performing a modal analysis followed by
+        a harmonic analysis. If specified, a static linear analysis will also be performed and the results will be superimposed with those from
+        harmonic analysis
+
+        :para harmonic_combo: The harmonic load combination
+        :type harmonic_combo: LoadCombo
+        :para f1: The lowest forcing frequency to consider
+        :type f1: float
+        :para f2: The highest forcing frequency to consider
+        :type f2: float
+        :para f_div: The number of frequencies in the range to compute for
+        :type f_div: int
+        :para num_modes: The number of modes to use in the analysis
+        :type num_modes: int
+        :para damping_ratio_1: The damping ratio in the lowest mode
+        :type damping_ratio_1: float
+        :para damping_ratio_2: The damping ratio in the highest mode considered. If not provided, damping_ratio_1 will be assumed for all modes
+        :type damping_ratio_2: float, optional
+        :para static_combo: The static load combination. For example self weight
+        :type static_combo: LoadCombo
+        :param log: Prints the analysis log to the console if set to True. Default is False.
+        :type log: bool, optional
+        :param check_stability: When set to True, checks the stiffness matrix for any unstable degrees of freedom and reports them back to the console. This does add to the solution time. Defaults to True.
+        :type check_stability: bool, optional
+        :param check_statics: When set to True, causes a statics check to be performed. Defaults to False.
+        :type check_statics: bool, optional
+        :para tol: The required accuracy in the results
+        :type tol: float, optional
+        :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
+        :type sparse: bool, optional
+        :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
+        """
+
+        # Check input
+        if f1<0 or f2<0 or f_div<0:
+            raise ValueError("f1, f2 and f_div must be positive")
+
+        if f2<f1:
+            raise ValueError("f2 must be greater than f1")
+
+        if f_div == 1:
+            raise ValueError("f_div must be atleast 2")
+
+        # Perform modal analysis
+        self.analyze_modal(log,check_stability,num_modes,tol,sparse)
+
+        # Perform static linear analysis if requested for
+        if static_combo != None:
+
+            # We do not want to perform static analysis for all the load combinations
+            # Hence we will keep the load combinations in a temporal object
+            load_combos_temp = self.LoadCombos
+
+            # Then remove all other load combos except the required load combo
+            self.LoadCombos = self.LoadCombos[static_combo]
+
+            # Perform the analysis
+            self.analyze_linear(log,check_stability,check_statics,sparse)
+
+            # Restore the load combos
+            self.LoadCombos = load_combos_temp
+
+        # At this point, we have the mode shapes, natural frequencies, and static displacement results stored in
+        # self._SHAPE, self.Natural_Frequencies, and self._D respectively
+
+        # We can now begin the harmonic analysis
+        if log:
+            print('+--------------------+')
+            print('| Analyzing: Harmonic|')
+            print('+--------------------+')
+
+        # Import `scipy` features if the sparse solver is being used
+        if sparse == True:
+            from scipy.sparse.linalg import spsolve
+
+
+        # Activate all springs for the harmonic load combination
+        for spring in self.Springs.values():
+            spring.active[harmonic_combo] = True
+
+        # Activate all physical members for the harmonic load combination
+        for phys_member in self.Members.values():
+            phys_member.active[harmonic_combo] = True
+
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2 = self._aux_list()
+
+        # Convert D2 from a list to a vector
+        D2 = atleast_2d(D2).T
+
+        # Get the partitioned global stiffness matrix K11, K12, K21, K22
+        if sparse == True:
+            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, check_stability, sparse).tolil(), D1_indices, D2_indices)
+            # We will not check for stability of the mass matrix. check_stability will be set to False
+            # This is because for the shell elements, the mass matrix has zeroes
+            # on the rotation about z-axis DOFs
+            # Only the stiffness matrix is modified to account for this 'drilling' effect
+            # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
+            # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
+        else:
+            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, check_stability, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse), D1_indices, D2_indices)
+
+
+        # Calculate rayleigh coefficients if two damping ratios provided
+        if damping_ratio_2!=None:
+            w1 = self.Natural_Frequencies[0]*2*pi #Angular frequency of first mode
+            w2 = self.Natural_Frequencies[-1]*2*pi #Angular frequency of last mode
+            alpha1 = 2*w1*w2*(w2*damping_ratio_1-w1*damping_ratio_2)/(w2**2-w1**2)
+            alpha2 = 2*(w2*damping_ratio_2-w1*damping_ratio_1)/(w2**2-w1**2)
+
+        # Calculate the normalised mass and stiffness matrices
+        Z = self._mass_normalised_mode_shapes(M11,self._SHAPE)
+
+        # Get the partitioned global fixed end reaction vector
+        FER1, FER2 = self._partition(self.FER(harmonic_combo), D1_indices, D2_indices)
+
+        # Calculate the normalised force vector
+        FER1_n = Z.T @ FER1
+
+        # Initialise vectors to hold the modal displacements coordinates
+        Q = zeros((FER1_n.shape[0],1))
+
+
+
+        # Calculate the damping coefficients
+        w = 2*pi*self.Natural_Frequencies #Angular natural frequencies
+        if damping_ratio_2 == None:
+            # Modal damping
+            C_n = 2*damping_ratio_1*w
+        else:
+            # Rayleigh damping
+            C_n = alpha1 * ones((FER1_n.shape[0],1)) + alpha2 * w**2
+
+        # Calculate step of frequencies
+        step = (f2 - f1)/(f_div-1)
+
+        # Calculate the forcing frequencies
+        freq = []
+        for j in range(f_div):
+            freq.append(f1+step*j)
+
+        omega_list = 2*pi* array(freq) # Angular frequency of load
+
+        self.LoadOmega = omega_list # Save it
+
+        # Initialise matrix to hold the normal displacements
+        D_temp = zeros((len(self.Nodes)*6,omega_list.shape[0]))
+
+        # Calculate the modal coordinates for each forcing frequency
+
+        try:
+            n = 0 #Index for each displacement vector
+            for omega in omega_list:
+                for j in range (FER1_n.shape[0]):
+                    Q[j,0] = FER1_n[j,0] * sqrt( 1/(w[j]**2 - omega**2+(omega**2) * C_n[j]**2))
+
+                #Calculate the Physical displacements
+                D1 = Z @ Q
+
+                # Form the global displacement vector, D, from D1 and D2
+                D = zeros((len(self.Nodes) * 6, 1))
+
+                for node in self.Nodes.values():
+
+                    if D2_indices.count(node.ID * 6 + 0) == 1:
+                        D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
+
+                    if D2_indices.count(node.ID * 6 + 1) == 1:
+                        D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
+
+                    if D2_indices.count(node.ID * 6 + 2) == 1:
+                        D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
+
+                    if D2_indices.count(node.ID * 6 + 3) == 1:
+                        D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
+
+                    if D2_indices.count(node.ID * 6 + 4) == 1:
+                        D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+
+                    if D2_indices.count(node.ID * 6 + 5) == 1:
+                        D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+                    else:
+                        D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+
+                # Save the all the maximum global displacement vectors for each load frequency
+                D_temp[:,n] = D[:,0]
+                self._Max_D_Harmonic = D_temp
+                n+=1
+
+
+        except:
+            raise  Exception("'The stiffness matrix is singular, which implies rigid body motion."
+                             "The structure is unstable. Aborting analysis.")
+
+        return self.LoadOmega
+
+
+
+
+
+
+    def _mass_normalised_mode_shapes(self, m, modes):
+        """
+        Normalises the Mode shapes with respect to the mass matrix
+        :param m: Mass matrix
+        :type m: ndarray, lil_matrix, csr_matrix
+        :param modes: Mode shapes
+        :type modes: ndarray or lil_matrix
+        """
+        if isinstance(m, ndarray):
+            Mr = modes.T @ m @ modes
+        elif isinstance(m, lil_matrix):
+            Mr = modes.T @ m.tocsr() @ modes
+        elif isinstance(m, csr_matrix):
+            Mr = modes.T @ m @ modes
+        else:
+            raise ValueError("Invalid input type for 'm'. Expected ndarray, lil_matrix, or csr_matrix.")
+
+        for col in range(modes.shape[1]):
+            modes[:, col] = modes[:, col] / sqrt(Mr[col, col])
+        return modes
 
     def set_active_mode(self, active_mode):
         """
