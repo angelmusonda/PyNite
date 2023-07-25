@@ -1,13 +1,15 @@
 # %%
 from os import rename
 import warnings
+import copy
 from math import isclose
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
-from numpy import seterr, real, pi, sqrt , ndarray
+from numpy import seterr, real, pi, sqrt , ndarray, interp
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix, lil_matrix
+from scipy.interpolate import CubicSpline
 
 from PyNite.Node3D import Node3D
 from PyNite.Material import Material
@@ -18,6 +20,8 @@ from PyNite.Quad3D import Quad3D
 from PyNite.Plate3D import Plate3D
 from PyNite.LoadCombo import LoadCombo
 from PyNite.Mesh import Mesh, RectangleMesh, AnnulusMesh, FrustrumMesh, CylinderMesh
+
+from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError
 
 # %%
 class FEModel3D():
@@ -59,7 +63,7 @@ class FEModel3D():
         self.Natural_Frequencies = []      # A list to store the calculated natural frequencies
         self._Max_D_Harmonic = []  # A dictionary of the models maximum displacements per load frequency
 
-        self.LoadOmega = []                # A list to store the calculated natural frequencies
+        self.LoadFrequencies = []                # A list to store the calculated load frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
 
     @property
@@ -2979,7 +2983,7 @@ class FEModel3D():
 
         # Add a modal load combination if not present
         if 'Modal Combo' not in self.LoadCombos:
-            self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 1.0})
+            self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 0})
 
         # Generate all meshes
         for mesh in self.Meshes.values():
@@ -3187,17 +3191,22 @@ class FEModel3D():
         if static_combo != None:
 
             # We do not want to perform static analysis for all the load combinations
-            # Hence we will keep the load combinations in a temporal object
-            load_combos_temp = self.LoadCombos
+            # Hence we will keep the load combinations in a temporary object
+            load_combos_temp = copy.deepcopy(self.LoadCombos)
 
             # Then remove all other load combos except the required load combo
-            self.LoadCombos = self.LoadCombos[static_combo]
+            self.LoadCombos.clear()
+            self.LoadCombos = {static_combo: load_combos_temp[static_combo]}
 
             # Perform the analysis
-            self.analyze_linear(log,check_stability,check_statics,sparse)
+            self.analyze_linear(log, check_stability, check_statics, sparse)
 
             # Restore the load combos
-            self.LoadCombos = load_combos_temp
+            self.LoadCombos = copy.deepcopy(load_combos_temp)
+
+            # Delete the temp dictionary
+            del load_combos_temp
+
 
         # At this point, we have the mode shapes, natural frequencies, and static displacement results stored in
         # self._SHAPE, self.Natural_Frequencies, and self._D respectively
@@ -3208,18 +3217,26 @@ class FEModel3D():
             print('| Analyzing: Harmonic|')
             print('+--------------------+')
 
+
+
+
         # Import `scipy` features if the sparse solver is being used
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
 
         # Activate all springs for the harmonic load combination
+
         for spring in self.Springs.values():
             spring.active[harmonic_combo] = True
 
         # Activate all physical members for the harmonic load combination
         for phys_member in self.Members.values():
             phys_member.active[harmonic_combo] = True
+
+        # Assign an internal ID to all nodes and elements in the model
+        self._renumber()
+
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -3262,7 +3279,6 @@ class FEModel3D():
         Q = zeros((FER1_n.shape[0],1))
 
 
-
         # Calculate the damping coefficients
         w = 2*pi*self.Natural_Frequencies #Angular natural frequencies
         if damping_ratio_2 == None:
@@ -3282,7 +3298,7 @@ class FEModel3D():
 
         omega_list = 2*pi* array(freq) # Angular frequency of load
 
-        self.LoadOmega = omega_list # Save it
+        self.LoadFrequencies = array(freq) # Save it
 
         # Initialise matrix to hold the normal displacements
         D_temp = zeros((len(self.Nodes)*6,omega_list.shape[0]))
@@ -3293,7 +3309,7 @@ class FEModel3D():
             n = 0 #Index for each displacement vector
             for omega in omega_list:
                 for j in range (FER1_n.shape[0]):
-                    Q[j,0] = FER1_n[j,0] * sqrt( 1/(w[j]**2 - omega**2+(omega**2) * C_n[j]**2))
+                    Q[j,0] = FER1_n[j,0] * sqrt( 1/((w[j]**2 - omega**2)**2+(omega**2) * C_n[j]**2))
 
                 #Calculate the Physical displacements
                 D1 = Z @ Q
@@ -3334,19 +3350,33 @@ class FEModel3D():
                         D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
 
                 # Save the all the maximum global displacement vectors for each load frequency
-                D_temp[:,n] = D[:,0]
-                self._Max_D_Harmonic = D_temp
-                n+=1
+                if static_combo==None:
+                    D_temp[:,n] = D[:,0]
+                else:
+                    D_temp[:,n] = D[:,0] + self._D[static_combo][:,0]
+                n += 1
+            self._Max_D_Harmonic = D_temp
+
 
 
         except:
             raise  Exception("'The stiffness matrix is singular, which implies rigid body motion."
                              "The structure is unstable. Aborting analysis.")
 
-        return self.LoadOmega
+        if log:
+            print('')
+            print('- Analysis complete')
+            print('')
+
+        # Check statics if requested
+        if check_statics == True:
+            self._check_statics()
+
+        # Flag the model as solved
+        self.solution = 'Harmonic'
 
 
-
+        return self.LoadCombos['COMB1']
 
 
 
@@ -3379,10 +3409,14 @@ class FEModel3D():
         ---------
         active_mode : int
             The mode to set active
+
+        Exceptions
+        ----------
+        Occurs when the function is called and the modal analysis results are not available
         """
 
         # Check if modal analysis results are available
-        if self.solution == 'Modal':
+        if self.solution == 'Modal' or self.solution=='Harmonic':
             # Check that the requested mode is among the calculated modes
             calculated_modes = self._SHAPE.shape[0]
             if active_mode>calculated_modes:
@@ -3454,7 +3488,7 @@ class FEModel3D():
                 node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
 
         else:
-            raise Exception('Modal analysis results are not available')
+            raise ResultsNotFoundError
 
     def natural_frequency(self, mode=None):
         # Check the results availability
@@ -3468,6 +3502,71 @@ class FEModel3D():
         else:
             raise Exception('Modal analysis results are not available')
         return self.Natural_Frequencies[mode - 1]
+
+    def set_load_frequency_to_query_results_for(self, frequency, harmonic_combo):
+        """
+        Sets the frequency to query results for. Only works when harmonic results are available
+
+        Parameters
+        ----------
+        :param frequency: The frequency for which results are desired
+        :type frequency: int
+
+        Raises
+        ------
+        : ResultsNotFoundError
+             Occurs when the function is called and the harmonic analysis results are not available
+
+        : InputOutOfRangeError
+             Occurs when the provided frequency is out of range of frequencies analysed for
+
+        """
+
+
+        #Check if harmonic results are available and raise error if not
+
+        if self.solution != 'Harmonic':
+            raise ResultsNotFoundError
+
+        # Get the frequency range analysed for
+        f_min = min(self.LoadFrequencies)
+        f_max = max(self.LoadFrequencies)
+
+        # Check if the requested for frequency is within the range analysed for
+        if frequency < f_min or frequency > f_max:
+            raise InputOutOfRangeError
+
+        dof = self._Max_D_Harmonic.shape[0]
+
+        # Number of columns in y_data
+        #num_columns = y_data.shape[1]
+
+        # Perform cubic spline interpolation for each dof
+        D = zeros((dof,1))
+        for i in range(dof):
+
+            # Linear interpolation
+            D[i, 0] = interp(frequency, self.LoadFrequencies, self._Max_D_Harmonic[i, :])
+
+            # The Cubic spline interpolation below can also be used
+            #spline_function = CubicSpline(self.LoadFrequencies, self._Max_D_Harmonic[i, :])
+            #D[i,0] = spline_function(frequency)
+
+        # Store the calculated global nodal modal displacements into each node
+        for node in self.Nodes.values():
+            node.DX[harmonic_combo] = D[node.ID * 6 + 0, 0]
+            node.DY[harmonic_combo] = D[node.ID * 6 + 1, 0]
+            node.DZ[harmonic_combo] = D[node.ID * 6 + 2, 0]
+            node.RX[harmonic_combo] = D[node.ID * 6 + 3, 0]
+            node.RY[harmonic_combo] = D[node.ID * 6 + 4, 0]
+            node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
+
+        print(node.DX['COMB1'])
+
+
+
+
+
 
     def _calc_reactions(self, log=False):
         """
