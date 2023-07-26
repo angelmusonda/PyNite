@@ -251,7 +251,8 @@ class Member3D():
         J = self.J
         A = self.A
         L = self.L()
-        rho = self.rho
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
 
         #Create the uncondensed local mass matrix
         #Ref: S. S. Quek, G.R. Liu - The Finite Element Method_ A Practical Course-Butterworth-Heinemann (2003) Page 429
@@ -271,6 +272,50 @@ class Member3D():
 
         # Return the uncondensed local mass matrix
         return m
+
+#%%
+    def rho_increased(self, rho):
+        """
+        Accounts for load cases selected as mass cases by increasing the density. All force mass cases are distributed
+        every along the entire length of the member
+
+        :param rho: The actual material density
+        :type rho: float
+        """
+
+        # Initialise variables to sum all loads
+        total_point_mass = 0
+        total_dist_mass = 0
+
+        # Iterate through each item in the dictionary of mass cases
+        for case, gravity_factor in self.model.MassCases.items():
+            gravity = gravity_factor[0]
+            factor = gravity_factor[1]
+            # Iterate through each item in the list of point load cases
+            for pt_case in self.PtLoads:
+                if case == pt_case[3]:
+                    # If load case is listed as a mass case, then consider it
+                    if pt_case[0] == 'FZ' and pt_case[1] <= 0:
+                        # If load case is in the FZ down direction, the add it to the total mass load
+                        total_point_mass += factor * abs(pt_case[1]) / gravity
+                    else:
+                        # If the specified mass case has a different direction than FZ, raise an error
+                        raise Exception('Direction error: Mass cases should have a direction of "FZ"')
+
+            # Do the same for distributed loads
+            for dist_case in self.DistLoads:
+                if case == dist_case[5]:
+                    if dist_case[0] == 'FZ' and dist_case[1] <= 0 and dist_case[2] <= 0:
+                        # We are using the average intensity of the distributed load
+                        total_dist_mass += factor * (self.L()* abs(dist_case[1] + dist_case[2])/2)/gravity
+                    else:
+                        raise Exception('Direction error: Mass cases should have a direction of "FZ"')
+
+        return rho + (total_point_mass + total_dist_mass)/(self.A * self.L())
+
+
+
+
 
 #%%
     def fer(self, combo_name='Combo 1'):

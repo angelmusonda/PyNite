@@ -510,7 +510,8 @@ class Quad3D():
         det_J4 = det(self.J(gp, -gp))
 
         # Calculate the 8 by 8 matrix corresponding to 2 degrees of freedom at each node
-        rho = self.rho
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
         t = self.t
 
         mass_matrix = rho * t * (matmul(H1.T, H1)*det_J1 +
@@ -590,7 +591,8 @@ class Quad3D():
         det_J4 = det(self.J(gp, -gp))
 
         # Calculate the 12 by 12 matrix corresponding to 3 degrees of freedom at each node
-        rho = self.rho
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
         t = self.t
 
         I = array([[t,    0,       0      ],
@@ -657,6 +659,56 @@ class Quad3D():
         # Sum the bending and membrane stiffness matrices
         return add(self.m_b(), self.m_m())
 
+
+#%%
+    def rho_increased(self, rho):
+        """
+        Accounts for load cases selected as mass cases by increasing the density. All force mass cases are distributed
+        evenly accross the surface of the quad
+
+        :param rho: The actual material density
+        :type rho: float
+        """
+
+        # Initialise variables to sum all loads
+        total_pressure_mass = 0
+
+        # Iterate through each item in the dictionary of mass cases
+        for case, gravity_factor in self.model.MassCases.items():
+            gravity = gravity_factor[0]
+            factor = gravity_factor[1]
+            # Iterate through each item in the list of point load cases
+            for pressure_case in self.pressures:
+                if case == pressure_case[1]:
+                    # We are not multiplying the pressure by the quad area, this is because the step
+                    # right after requires division by area, hence the two cancel
+                    total_pressure_mass += factor * abs(pressure_case[0]) / gravity
+
+        return rho + total_pressure_mass / self.t
+
+#%%
+    def quad_area(self, x, y):
+        """
+        This is not in use yet
+        Calculates and returns the area of a polygon with order coordinates
+        :param x: A list of x-coordinates in the correct order
+        :type x: list
+        :param y: A list of y-coordinates in the correct order
+        :type y: list
+        """
+
+        # Initialize area
+        area = 0.0
+
+        # Calculate value of shoelace formula
+        n = len(x)
+        j = n - 1
+        for i in range(0, n):
+            area += (x[j] + x[i]) * (y[j] - y[i])
+            j = i  # j is previous vertex to i
+
+        # Return absolute value
+        return int(abs(area / 2.0))
 
 #%%
     def f(self, combo_name='Combo 1'):
