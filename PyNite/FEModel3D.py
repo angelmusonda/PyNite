@@ -1065,16 +1065,22 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = None
 
-    def use_as_mass_case(self, name, gravity_factor_pair=(9.81, 1)):
+    def set_as_mass_case(self, name, gravity_and_factor=(9.81, 1)):
         """
-        Sets a load case as mass case.
+        Set a load case as a mass case. This function allows you to designate a specific load case to be used as a mass case for analysis.
 
-        :param name: The name of the load case to be used as a mass case
+        Parameters:
+        ----------
+        :param name: The name of the load case to be used as a mass case.
         :type name: str
-        :param gravity_factor_pair: Gravity is needed change load to mass. Percentage of the load (in decimal) to be used as a mass case. Some loads, e.g. live loads, can only contribute a small percetange to the mass as specified in the design code
-        :type gravity_factor_pair: float
+        :param gravity_and_factor: A tuple containing gravity and a percentage factor.
+            - gravity: The gravitational acceleration at the location where the structure is analyzed. Default value is 9.81 m/s² for Earth.
+            - factor: A percentage of the load to be used as a mass case. This factor should be specified as a decimal (e.g., 0.5 for 50%).
+              Some loads, such as live loads, may only contribute a small percentage to the total mass as specified in the design code. Default value is 1, representing the full load.
+        :type gravity_and_factor: tuple(float, float).
+
         """
-        self.MassCases[name] = gravity_factor_pair
+        self.MassCases[name] = gravity_and_factor
 
     def add_node_load(self, Node, Direction, P, case='Case 1'):
         """Adds a nodal load to the model.
