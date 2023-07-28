@@ -503,9 +503,9 @@ class Plate3D():
         total_pressure_mass = 0
 
         # Iterate through each item in the dictionary of mass cases
-        for case, gravity_factor in self.model.MassCases.items():
-            gravity = gravity_factor[0]
-            factor = gravity_factor[1]
+        for case in self.model.MassCases.keys():
+            gravity = self.model.MassCases[case].gravity
+            factor = self.model.MassCases[case].factor
             # Iterate through each item in the list of point load cases
             for pressure_case in self.pressures:
                 if case == pressure_case[1]:

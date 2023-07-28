@@ -5,7 +5,7 @@ import copy
 from math import isclose
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
-from numpy import seterr, real, pi, sqrt, ndarray, interp
+from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix, lil_matrix
@@ -19,6 +19,7 @@ from PyNite.Member3D import Member3D
 from PyNite.Quad3D import Quad3D
 from PyNite.Plate3D import Plate3D
 from PyNite.LoadCombo import LoadCombo
+from PyNite.MassCase import MassCase
 from PyNite.Mesh import Mesh, RectangleMesh, AnnulusMesh, FrustrumMesh, CylinderMesh
 
 from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError
@@ -1065,22 +1066,27 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = None
 
-    def set_as_mass_case(self, name, gravity_and_factor=(9.81, 1)):
+    def set_as_mass_case(self, name, gravity=9.81, factor=1):
         """
-        Set a load case as a mass case. This function allows you to designate a specific load case to be used as a mass case for analysis.
+        Set a load case as a mass case for analysis.
+
+        This function designates a specific load case to be treated as a mass case during analysis.
 
         Parameters:
-        ----------
-        :param name: The name of the load case to be used as a mass case.
-        :type name: str
-        :param gravity_and_factor: A tuple containing gravity and a percentage factor.
-            - gravity: The gravitational acceleration at the location where the structure is analyzed. Default value is 9.81 m/s² for Earth.
-            - factor: A percentage of the load to be used as a mass case. This factor should be specified as a decimal (e.g., 0.5 for 50%).
-              Some loads, such as live loads, may only contribute a small percentage to the total mass as specified in the design code. Default value is 1, representing the full load.
-        :type gravity_and_factor: tuple(float, float).
+        -----------
+        :param name: str
+            The name of the load case to be used as a mass case.
+
+        :param gravity: float, optional
+            The gravitational acceleration at the location where the structure is analyzed. Default value is 9.81 m/s² for Earth.
+
+        :param factor: float, optional
+            A percentage of the load to be used as a mass case. This factor should be specified as a decimal (e.g., 0.5 for 50%).
+            Some loads, such as live loads, may only contribute a small percentage to the total mass as specified in the design code.
+            Default value is 1, representing the full load.
 
         """
-        self.MassCases[name] = gravity_and_factor
+        self.MassCases[name] = MassCase(name, gravity, factor)
 
     def add_node_load(self, Node, Direction, P, case='Case 1'):
         """Adds a nodal load to the model.
@@ -1858,6 +1864,63 @@ class FEModel3D():
                         data.append(plate_M[a, b])
                     else:
                         M[m, n] += plate_M[a, b]
+
+        # Add concentrated masses for point load cases taken as mass cases
+        # We will distribute the point mass to the translation degrees of freedom
+
+        for node in self.Nodes.values():
+
+            # Get the node's ID
+            ID = node.ID
+
+            # Step through the Mass Cases
+            for case in self.MassCases.keys():
+                gravity = self.MassCases[case].gravity
+                factor = self.MassCases[case].factor
+
+                # Step through the nodal loads
+                for load in node.NodeLoads:
+
+                    if load[2] == case:
+
+                        if load[0] == 'FZ' and load[1] <= 0:
+                            # Calculate mass
+                            mass = factor * abs(load[1])/gravity
+
+                            # Calculate mass per translational dof
+                            # mass_per_dof = mass/3    This was the initial idea but abandoned upon further research
+                            mass_per_dof = mass
+
+                            # Get the corresponding index of the node in the global matrix
+                            m = ID * 6
+
+                            if sparse == True:
+                                # Translation in the FX direction
+                                row.append(m+0)
+                                col.append(m+0)
+                                data.append(mass_per_dof)
+
+                                # Translation in the FY direction
+                                row.append(m+1)
+                                col.append(m+1)
+                                data.append(mass_per_dof)
+
+                                # Translation in the FZ direction
+                                row.append(m+2)
+                                col.append(m+2)
+                                data.append(mass_per_dof)
+                            else:
+                                # Translation in the FX direction
+                                M[m+0, m+0] += mass_per_dof
+
+                                # Translation in the FY direction
+                                M[m+1, m+1] += mass_per_dof
+
+                                # Translation in the FZ direction
+                                M[m+2, m+2] += mass_per_dof
+
+                        else:
+                            raise Exception('Direction error: Mass cases should have a direction of "FZ"')
 
         if sparse:
             # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
@@ -3185,7 +3248,7 @@ class FEModel3D():
 
         # Flag the model as solved
         self.solution = 'Modal'
-        # return self.Natural_Frequencies[0]
+
 
     def analyze_harmonic(self, harmonic_combo, f1, f2, f_div, num_modes, damping_ratio_1, damping_ratio_2=None,
                          static_combo=None, log=False, check_stability=True, check_statics=False, tol=0.01,
@@ -3310,17 +3373,20 @@ class FEModel3D():
             alpha1 = 2 * w1 * w2 * (w2 * damping_ratio_1 - w1 * damping_ratio_2) / (w2 ** 2 - w1 ** 2)
             alpha2 = 2 * (w2 * damping_ratio_2 - w1 * damping_ratio_1) / (w2 ** 2 - w1 ** 2)
 
-        # Calculate the normalised mass and stiffness matrices
+        # Get the mass normalised mode shape matrix
         Z = self._mass_normalised_mode_shapes(M11, self._SHAPE)
 
         # Get the partitioned global fixed end reaction vector
         FER1, FER2 = self._partition(self.FER(harmonic_combo), D1_indices, D2_indices)
 
+        # Get the partitioned global nodal force vector
+        P1, P2 = self._partition(self.P(harmonic_combo), D1_indices, D2_indices)
+
         # Calculate the normalised force vector
-        FER1_n = Z.T @ FER1
+        FV_n = Z.T @ subtract(P1,FER1)
 
         # Initialise vectors to hold the modal displacements coordinates
-        Q = zeros((FER1_n.shape[0], 1))
+        Q = zeros((FV_n.shape[0], 1))
 
         # Calculate the damping coefficients
         w = 2 * pi * self.Natural_Frequencies  # Angular natural frequencies
@@ -3329,16 +3395,11 @@ class FEModel3D():
             C_n = 2 * damping_ratio_1 * w
         else:
             # Rayleigh damping
-            C_n = alpha1 * ones((FER1_n.shape[0], 1)) + alpha2 * w ** 2
-
-        # Calculate step of frequencies
-        step = (f2 - f1) / (f_div - 1)
+            C_n = alpha1 * ones((FV_n.shape[0], 1)) + alpha2 * w ** 2
 
         # Calculate the forcing frequencies
-        freq = []
-        for j in range(f_div):
-            freq.append(f1 + step * j)
 
+        freq = linspace(f1,f2, f_div)
         omega_list = 2 * pi * array(freq)  # Angular frequency of load
 
         self.LoadFrequencies = array(freq)  # Save it
@@ -3351,8 +3412,8 @@ class FEModel3D():
         try:
             n = 0  # Index for each displacement vector
             for omega in omega_list:
-                for j in range(FER1_n.shape[0]):
-                    Q[j, 0] = FER1_n[j, 0] * sqrt(1 / ((w[j] ** 2 - omega ** 2) ** 2 + (omega ** 2) * C_n[j] ** 2))
+                for j in range(FV_n.shape[0]):
+                    Q[j, 0] = FV_n[j, 0] * sqrt(1 / ((w[j] ** 2 - omega ** 2) ** 2 + (omega ** 2) * (C_n[j]) ** 2))
 
                 # Calculate the Physical displacements
                 D1 = Z @ Q
@@ -3402,9 +3463,11 @@ class FEModel3D():
 
 
 
+
         except:
             raise Exception("'The stiffness matrix is singular, which implies rigid body motion."
                             "The structure is unstable. Aborting analysis.")
+
 
         if log:
             print('')
@@ -3418,7 +3481,10 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = 'Harmonic'
 
-        return self.LoadCombos['COMB1']
+        # Select the frequency to show results for
+        self.set_load_frequency_to_query_results_for(f1,harmonic_combo)
+        #return Z.T @ M11 @ Z
+
 
     def _mass_normalised_mode_shapes(self, m, modes):
         """
@@ -3599,7 +3665,9 @@ class FEModel3D():
             node.RY[harmonic_combo] = D[node.ID * 6 + 4, 0]
             node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
 
-        print(node.DX['COMB1'])
+        # Re-calculate reactions
+        self._calc_reactions()
+
 
     def _calc_reactions(self, log=False):
         """
