@@ -240,8 +240,38 @@ class Member3D():
 
         # Return the local stiffness matrix, with end releases applied
         return m_Condensed
-    
 #%%
+    def m_hrz(self):
+        """
+        Returns the condensed (and expanded) hrz lumped local mass matrix for the member.
+        """
+
+        # Partition the local stiffness matrix as 4 submatrices in
+        # preparation for static condensation
+        k11, k12, k21, k22 = self._partition(self._k_unc())
+        m11, m12, m21, m22 = self._partition(self._m_unc_hrz())
+        # Calculate the condensed local mass matrix
+        # We are avoiding inv() by using solve(), since it is more stable
+        # inv(A)*B is the same as solve(A,B)
+        m_Condensed = subtract(m11,
+                               matmul(m12, solve(k22, k21)),
+                               matmul(transpose(solve(k22, k21)),
+                                      subtract(m21, matmul(m22, solve(k22, k21))))
+                               )
+        # Expand the condensed local mass matrix
+        i = 0
+        for DOF in self.Releases:
+
+            if DOF == True:
+                m_Condensed = insert(m_Condensed, i, 0, axis=0)
+                m_Condensed = insert(m_Condensed, i, 0, axis=1)
+
+            i += 1
+
+        # Return the local stiffness matrix, with end releases applied
+        return m_Condensed
+
+    #%%
     def _m_unc(self):
         """
         Returns the uncondensed local mass matrix for the member
@@ -268,6 +298,38 @@ class Member3D():
                    [0,      0,      0, rho*L*J/6,      0,       0,      0,      0,      0, rho*L*J/3,       0,      0],
                    [0, 0, 13*rho*A*L**2/420,  0, -rho*A*L**3/140,  0,  0,  0, 11*rho*A*L**2/210, 0, rho*A*L**3/105, 0],
                    [0,  -13*rho*A*L**2/420,  0, 0, 0, -rho*A*L**3/140, 0, -11*rho*A*L**2/210, 0, 0, 0, rho*A*L**3/105]
+                   ])
+
+        # Return the uncondensed local mass matrix
+        return m
+
+#%%
+    def _m_unc_hrz(self):
+        """
+        Returns the uncondensed hrz lumped local mass matrix for the member
+        """
+
+        #Get the properties needed to form the member local mass matrix
+        J = self.J
+        A = self.A
+        L = self.L()
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
+
+        #Create the uncondensed hrz local mass matrix
+
+        m = array([[rho*A*L/2,    0,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,    rho*A*L/2,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,   rho*A*L/2,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,    rho*L*J/3,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0, rho*A*L**3/78,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0, rho*A*L**3/78,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,   rho*A*L/2,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,  rho*A*L/2,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,  rho*A*L/2,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*J/3,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,  rho*A*L**3/78,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,     0, rho*A*L**3/78]
                    ])
 
         # Return the uncondensed local mass matrix
@@ -592,13 +654,20 @@ class Member3D():
         return matmul(matmul(inv(self.T()), self.k()), self.T())
 
 #%%
-    # Member global mass matrix
+    # Member global consistent mass matrix
     def M(self):
-        # Calculate and return the mass matrix in global coordinates
+        # Calculates and returns the mass matrix in global coordinates
         # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
         # practice for numerical computation
         return matmul(solve(self.T(), self.m()), self.T())
 
+#%%
+    # Member global HRZ lumped mass matrix
+    def M_HRZ(self):
+        # Calculates and returns the mass matrix in global coordinates
+        # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
+        # practice for numerical computation
+        return matmul(solve(self.T(), self.m_hrz()), self.T())
 
 #%%
     # Member global geometric stiffness matrix
