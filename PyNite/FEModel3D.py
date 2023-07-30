@@ -1686,7 +1686,7 @@ class FEModel3D():
         # Return the global stiffness matrix
         return K
 
-    def M(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
+    def M(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True,type_mass_matrix = 'consistent'):
         """Returns the model's global mass matrix. The mass matrix will be returned in
            scipy's sparse lil format, which reduces memory usage and can be easily converted to
            other formats.
@@ -1701,9 +1701,16 @@ class FEModel3D():
         :param sparse: Returns a sparse matrix if set to True, and a dense matrix otherwise.
                        Defaults to True.
         :type sparse: bool, optional
+        :param type_mass_matrix: The type of element mass matrix to use in the analysis
+                                 Possible values: consistent, lumped
+        :type type_mass_matrix: str, optional
+
         :return: The global mass matrix for the structure.
         :rtype: ndarray or coo_matrix
         """
+        # Convert the type of mass matrix paramater to lowercase, for easy checking
+        type_mass_matrix = type_mass_matrix.lower()
+
         # Determine if a sparse matrix has been requested
         if sparse == True:
             # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
@@ -1730,7 +1737,13 @@ class FEModel3D():
 
                     # Get the member's global mass matrix
                     # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
-                    member_M = member.M()
+                    if type_mass_matrix == 'consistent':
+                        member_M = member.M()
+                    elif type_mass_matrix == 'lumped':
+                        member_M = member.M_HRZ()
+                    else:
+                        raise ValueError('Provided input '+ str(type_mass_matrix)+ ' is incorrect. Possible values are "consistent" and "lumped"')
+
 
                     # Step through each term in the member's mass matrix
                     # 'a' & 'b' below are row/column indices in the member's mass matrix
@@ -1769,7 +1782,13 @@ class FEModel3D():
 
             # Get the quadrilateral's global mass matrix
             # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
-            quad_M = quad.M()
+            if type_mass_matrix == 'consistent':
+                quad_M = quad.M()
+            elif type_mass_matrix == 'lumped':
+                quad_M = quad.M_HRZ()
+            else:
+                raise ValueError('Provided input '+ str(type_mass_matrix)+
+                                 ' is incorrect. Possible values are "consistent" and "lumped"')
 
             # Step through each term in the quadrilateral's mass matrix
             # 'a' & 'b' below are row/column indices in the quadrilateral's mass matrix
@@ -1820,7 +1839,13 @@ class FEModel3D():
 
             # Get the plate's global mass matrix
             # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
-            plate_M = plate.M()
+            if type_mass_matrix == 'consistent':
+                plate_M = plate.M()
+            elif type_mass_matrix == 'lumped':
+                plate_M = plate.M_HRZ()
+            else:
+                raise ValueError('Provided input ' + str(type_mass_matrix)
+                                 + ' is incorrect. Possible values are "consistent" and "lumped"')
 
             # Step through each term in the plate's mass matrix
             # 'a' & 'b' below are row/column indices in the plate's mass matrix
@@ -3067,7 +3092,8 @@ class FEModel3D():
         # Flag the model as solved
         self.solution = 'P-Delta'
 
-    def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True):
+    def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
+                      type_of_mass_matrix = 'consistent'):
         """Performs modal analysis.
 
         :param log: Prints the analysis log to the console if set to True. Default is False.
@@ -3080,6 +3106,8 @@ class FEModel3D():
         :type tol: float, optional
         :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
         :type sparse: bool, optional
+        :param type_of_mass_matrix: The type of element mass matrix to use in the analysis
+        :type type_of_mass_matrix: str, optional
         :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
         """
 
@@ -3128,11 +3156,11 @@ class FEModel3D():
             # Only the stiffness matrix is modified to account for this 'drilling' effect
             # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
             # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse).tolil(), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices, D2_indices)
         else:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices,
                                                  D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
 
         if log:
             print('')
@@ -3250,28 +3278,41 @@ class FEModel3D():
         self.solution = 'Modal'
 
 
-    def analyze_harmonic(self, harmonic_combo, f1, f2, f_div, num_modes, damping_ratio_1, damping_ratio_2=None,
+    def analyze_harmonic(self, harmonic_combo, f1, f2, f_div, num_modes, constant_modal_damping = 0.02,
+                         rayleigh_alpha_1 = None, rayleigh_alpha_2 = None, first_mode_damping_ratio = None,
+                         highest_mode_damping_ratio = None, damping_ratios_in_every_mode = None,
                          static_combo=None, log=False, check_stability=True, check_statics=False, tol=0.01,
-                         sparse=True):
+                         sparse=True, type_of_mass_matrix = 'consistent'):
         """Performs harmonic analysis for given harmonic load combination and load frequency. It begins by performing a modal analysis followed by
         a harmonic analysis. If specified, a static linear analysis will also be performed and the results will be superimposed with those from
         harmonic analysis
 
-        :para harmonic_combo: The harmonic load combination
+
+        :param harmonic_combo: The harmonic load combination
         :type harmonic_combo: LoadCombo
-        :para f1: The lowest forcing frequency to consider
+        :param f1: The lowest forcing frequency to consider
         :type f1: float
-        :para f2: The highest forcing frequency to consider
+        :param f2: The highest forcing frequency to consider
         :type f2: float
-        :para f_div: The number of frequencies in the range to compute for
+        :param f_div: The number of frequencies in the range to compute for
         :type f_div: int
-        :para num_modes: The number of modes to use in the analysis
+        :param num_modes: The number of modes to use in the analysis
         :type num_modes: int
-        :para damping_ratio_1: The damping ratio in the lowest mode
-        :type damping_ratio_1: float
-        :para damping_ratio_2: The damping ratio in the highest mode considered. If not provided, damping_ratio_1 will be assumed for all modes
-        :type damping_ratio_2: float, optional
-        :para static_combo: The static load combination. For example self weight
+        :param constant_modal_damping: A constant damping ratio to be used in all modes. E.g 0.02 to mean 2%
+        :type constant_modal_damping: float, optional
+        :param rayleigh_alpha_1: The rayleigh damping coefficient corresponding to mass proportionate damping
+        :type rayleigh_alpha_1: float, optional
+        :param rayleigh_alpha_2: The rayleigh damping coefficient corresponding to stiffness proportionate damping
+        :type rayleigh_alpha_2: float, optional
+        :param first_mode_damping_ratio: Damping ratio in the first mode. If provided, it will be used to calculate the
+            rayleigh damping coefficients.
+        :type first_mode_damping_ratio: float, optional
+        :param highest_mode_damping_ratio: Damping ratio in the highest mode. If provided, it will be used to calculate
+            the rayleigh damping coefficients
+        :type highest_mode_damping_ratio: float, optional
+        :param damping_ratios_in_every_mode: A list of damping ratios specified for every mode
+        :type damping_ratios_in_every_mode: list, tuple, optional
+        :param static_combo: The static load combination. For example self weight
         :type static_combo: LoadCombo
         :param log: Prints the analysis log to the console if set to True. Default is False.
         :type log: bool, optional
@@ -3283,10 +3324,13 @@ class FEModel3D():
         :type tol: float, optional
         :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
         :type sparse: bool, optional
+        :param type_of_mass_matrix: The type of element mass matrix to use in the analysis
+        :type type_of_mass_matrix: str, optional
         :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
+
         """
 
-        # Check input
+        # Check frequency
         if f1 < 0 or f2 < 0 or f_div < 0:
             raise ValueError("f1, f2 and f_div must be positive")
 
@@ -3297,7 +3341,7 @@ class FEModel3D():
             raise ValueError("f_div must be atleast 2")
 
         # Perform modal analysis
-        self.analyze_modal(log, check_stability, num_modes, tol, sparse)
+        self.analyze_modal(log, check_stability, num_modes, tol, sparse, type_of_mass_matrix)
 
         # Perform static linear analysis if requested for
         if static_combo != None:
@@ -3359,19 +3403,12 @@ class FEModel3D():
             # Only the stiffness matrix is modified to account for this 'drilling' effect
             # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
             # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse).tolil(), D1_indices,
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
                                                  D2_indices)
         else:
             K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, check_stability, sparse), D1_indices,
                                                  D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse), D1_indices, D2_indices)
-
-        # Calculate rayleigh coefficients if two damping ratios provided
-        if damping_ratio_2 != None:
-            w1 = self.Natural_Frequencies[0] * 2 * pi  # Angular frequency of first mode
-            w2 = self.Natural_Frequencies[-1] * 2 * pi  # Angular frequency of last mode
-            alpha1 = 2 * w1 * w2 * (w2 * damping_ratio_1 - w1 * damping_ratio_2) / (w2 ** 2 - w1 ** 2)
-            alpha2 = 2 * (w2 * damping_ratio_2 - w1 * damping_ratio_1) / (w2 ** 2 - w1 ** 2)
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
 
         # Get the mass normalised mode shape matrix
         Z = self._mass_normalised_mode_shapes(M11, self._SHAPE)
@@ -3390,15 +3427,67 @@ class FEModel3D():
 
         # Calculate the damping coefficients
         w = 2 * pi * self.Natural_Frequencies  # Angular natural frequencies
-        if damping_ratio_2 == None:
-            # Modal damping
-            C_n = 2 * damping_ratio_1 * w
+
+        # Calculate the damping matrix
+        # Initialise it
+        C_n = zeros(FV_n.shape[0])
+        if damping_ratios_in_every_mode != None:
+            # Declare new variable called ratios, easier to work with than the original
+            ratios = damping_ratios_in_every_mode
+            # Check if it is a list or turple
+            if isinstance(ratios, (list, tuple)):
+                # Calculate the modal damping coefficient for each mode
+                # If too many damping ratios have been provided, only the first entries
+                # corresponding to the requested modes will be used
+                # If few ratio have been provided, the last ratio will be used for the rest
+                # of the modes
+                for k in range(len(w)):
+                    C_n[k] = 2 * w[k] * ratios[min(k,len(ratios)-1)]
+            else:
+                # The provided input is perhaps a just a number, not a list
+                # That number will be used for all the modes
+                for k in range(len(w)):
+                   C_n[k] = 2 * damping_ratios_in_every_mode * w[k]
+        elif rayleigh_alpha_1 != None or rayleigh_alpha_2 != None:
+            # Atleast one rayleigh damping coefficient has been specified
+            if rayleigh_alpha_1 == None:
+                rayleigh_alpha_1 = 0
+            if rayleigh_alpha_2 == None:
+                rayleigh_alpha_2 = 0
+            for k in range(len(w)):
+                C_n[k] = rayleigh_alpha_1 + rayleigh_alpha_2 * w[k] ** 2
+
+        elif first_mode_damping_ratio != None or highest_mode_damping_ratio != None:
+            # Rayleigh damping is requested and at-least one damping ratio is given
+            # If only one is given, the same will be assumed to the damping ratios
+            # in the lowest and heighest modes
+            if first_mode_damping_ratio == None:
+                first_mode_damping_ratio = highest_mode_damping_ratio
+            if highest_mode_damping_ratio == None:
+                highest_mode_damping_ratio = first_mode_damping_ratio
+
+            # Calculate the rayleigh damping coefficients
+            # Create new shorter variables
+            ratio1 = first_mode_damping_ratio
+            ratio2 = highest_mode_damping_ratio
+
+            # Extract the first and last angular frequencies
+            w1 = w[0] # Angular frequency of first mode
+            w2 = w[-1] # Angular frequency of last mode
+
+            # Calculate the rayleigh damping coefficients
+            alpha1 = 2 * w1 * w2 * (w2 * ratio1 - w1 * ratio2) / (w2 ** 2 - w1 ** 2)
+            alpha2 = 2 * (w2 * ratio2 - w1 * ratio1) / (w2 ** 2 - w1 ** 2)
+
+            # Calculate the modal damping coefficients
+            for k in range(len(w)):
+                C_n[k] = alpha1 + alpha2 * w[k] ** 2
         else:
-            # Rayleigh damping
-            C_n = alpha1 * ones((FV_n.shape[0], 1)) + alpha2 * w ** 2
+            # Use one damping ratio for all modes, default ratio is 0.02 (2%)
+            for k in range(len(w)):
+                C_n[k] = 2 * w[k] * constant_modal_damping
 
         # Calculate the forcing frequencies
-
         freq = linspace(f1,f2, f_div)
         omega_list = 2 * pi * array(freq)  # Angular frequency of load
 
@@ -3609,7 +3698,7 @@ class FEModel3D():
             raise Exception('Modal analysis results are not available')
         return self.Natural_Frequencies[mode - 1]
 
-    def set_load_frequency_to_query_results_for(self, frequency, harmonic_combo):
+    def set_load_frequency_to_query_results_for(self, frequency, harmonic_combo, log = False):
         """
         Sets the frequency to query results for. Only works when harmonic results are available
 
@@ -3666,7 +3755,20 @@ class FEModel3D():
             node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
 
         # Re-calculate reactions
-        self._calc_reactions()
+        # We do not want to calculate reactions for all the load combinations
+        # Hence we will keep the load combinations in a temporary object
+        load_combos_temp = copy.deepcopy(self.LoadCombos)
+
+        # Then remove all other load combos except the required load combo
+        self.LoadCombos.clear()
+        self.LoadCombos = {harmonic_combo: load_combos_temp[harmonic_combo]}
+
+        # Calculate the reactions
+        self._calc_reactions(log)
+
+        # Restore the load combos
+        self.LoadCombos = copy.deepcopy(load_combos_temp)
+
 
 
     def _calc_reactions(self, log=False):

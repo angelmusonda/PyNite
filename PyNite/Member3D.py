@@ -307,6 +307,9 @@ class Member3D():
     def _m_unc_hrz(self):
         """
         Returns the uncondensed hrz lumped local mass matrix for the member
+        HRZ lumping scheme is described in the reference below
+        Hinton, E., Rock, T., & Zienkiewicz, O. C. (1976). A note on mass lumping and related processes in the finite element method. Earthquake Engineering & Structural Dynamics, 4(3). https://doi.org/10.1002/eqe.4290040305
+
         """
 
         #Get the properties needed to form the member local mass matrix

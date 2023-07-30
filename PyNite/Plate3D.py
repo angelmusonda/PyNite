@@ -1,5 +1,7 @@
 from numpy import zeros, array, matmul, cross, add
 from numpy.linalg import inv, norm, det
+from numpy import diag
+from math import atan2
 
 #%%
 class Plate3D():
@@ -515,8 +517,6 @@ class Plate3D():
 
         return rho + total_pressure_mass / self.t
 
-
-
     def f(self, combo_name='Combo 1'):
         """
         Returns the plate's local end force vector
@@ -721,6 +721,57 @@ class Plate3D():
 
         # Calculate and return the stiffness matrix in global coordinates
         return matmul(matmul(inv(T), self.m()), T)
+
+    def M_HRZ(self):
+        '''
+        Returns the quad element's global hrz lumped mass matrix
+        HRZ lumping scheme is described in the reference below
+        Hinton, E., Rock, T., & Zienkiewicz, O. C. (1976). A note on mass lumping and related processes in the finite element method. Earthquake Engineering & Structural Dynamics, 4(3). https://doi.org/10.1002/eqe.4290040305
+        '''
+
+        # Calculate the elements coordinates
+
+
+        # Get the element total mass
+
+        e_mass = self.t * self.height()* self.width() * self.rho_increased(self.rho)
+
+        # Get the consistent mass matrix
+        cmm = self.m()
+
+        # Initialise the lumped mass matrix, it should have the same entries on the diagonal as the
+        # consistent mass matrix and zeros everywhere
+        lmm = diag(diag(cmm))
+
+        # Sum the translational masses in the x direction
+        mass_sum_x = cmm[0,0]+cmm[6,6]+cmm[12,12] + cmm[18,18]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the x - direction dof
+        for n in [0, 6, 12, 18]:
+            lmm[n,n] = lmm[n,n] * e_mass/mass_sum_x
+
+        # Sum the translational masses in the x direction
+        mass_sum_y = cmm[1, 1] + cmm[7, 7] + cmm[13, 13] + cmm[19, 19]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the y - direction dof
+        for n in [1, 7, 13, 19]:
+            lmm[n, n] = lmm[n, n] * e_mass / mass_sum_y
+
+        # Sum the translational masses in the z direction
+        mass_sum_z = cmm[2, 2] + cmm[8, 8] + cmm[14, 14] + cmm[20, 20]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the z - direction dof
+        # Scale the rotational dof as well (those corresponding to RX and RY)
+        for n in [2, 3, 4, 8, 9, 10, 14, 15, 16, 21, 22, 20]:
+            lmm[n, n] = lmm[n, n] * e_mass / mass_sum_z
+
+        # Get the transformation matrix
+        T = self.T()
+
+        # Calculate and return the lumped mass matrix in global coordinates
+        return matmul(matmul(inv(T), lmm), T)
+
+
 
     def FER(self, combo_name='Combo 1'):
         """
