@@ -1501,13 +1501,13 @@ def _DeformedShape(model, renderer, scale_factor, annotation_size, combo_name, c
     append_filter = vtk.vtkAppendPolyData()
     
     # Check if nodes are to be rendered
-    if renderer.render_nodes == True:
+    #if renderer.render_nodes == True:
         
-        # Add the deformed nodes to the append filter
-        for node in model.Nodes.values():
+    # Add the deformed nodes to the append filter
+    for node in model.Nodes.values():
             
-            vis_node = VisDeformedNode(node, scale_factor, annotation_size, combo_name)
-            append_filter.AddInputData(vis_node.source.GetOutput())
+        vis_node = VisDeformedNode(node, scale_factor, annotation_size, combo_name)
+        append_filter.AddInputData(vis_node.source.GetOutput())
         
     # Add the springs to the append filter
     for spring in model.Springs.values():

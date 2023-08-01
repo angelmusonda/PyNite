@@ -1,4 +1,5 @@
 from PyNite import FEModel3D
+from numpy import  pi
 
 # Create a FE Model
 frame = FEModel3D()
@@ -32,7 +33,8 @@ J = Iy + Iz
 E = 30e9
 nu = 0.3
 G = E/(2*(1+nu))
-rho = 2400
+
+rho = 2500
 frame.add_material('Concrete', E, G,nu, rho)
 
 
@@ -66,11 +68,11 @@ frame.add_member('Column7', 'N7', 'N11', 'Concrete', Iy, Iz, J, A)
 frame.add_member('Column8', 'N8', 'N12', 'Concrete', Iy, Iz, J, A)
 
 # Add Slab
-#frame.add_rectangle_mesh('Slab1',0.2,4,4,0.2,'Concrete',origin=[0,0,3.5],element_type='Quad')
-#frame.Meshes['Slab1'].generate()
+frame.add_rectangle_mesh('Slab1',0.2,4,4,0.2,'Concrete',origin=[0,0,3.5],element_type='Quad')
+frame.Meshes['Slab1'].generate()
 
-#for element in frame.Quads.values():
-#    frame.add_quad_surface_pressure(element.name,-30e3,case = 'P')
+for element in frame.Plates.values():
+    frame.add_plate_surface_pressure(element.name,-300e3,case = 'Pressure')
 
 # Add supports
 frame.def_support('N1', True, True, True, True, True, True)
@@ -82,7 +84,24 @@ frame.def_support('N4', True, True, True, True, True, True)
 
 #frame.add_member_dist_load('Beam1','FZ',-30e3,-30e3)
 
-frame.add_member_dist_load('Beam2','FZ',-20e3,-30e3,case='P')
+frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='P')
+frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='C')
+frame.add_member_pt_load('Beam1','FZ',-50e3,2,'case2')
+frame.add_member_pt_load('Beam2','FZ',-50,2,'case2')
+
+frame.add_node_load('N11','FX',-500E3,'N')
+#frame.set_as_mass_case("Pressure")
+
+#frame.set_as_mass_case('P')
+#frame.set_as_mass_case('C')
+#frame.set_as_mass_case('N')
+#frame.set_as_mass_case('case2',(9.81, 2))
+
+#frame.set_as_mass_case_2('Beam2')
+
+#print(frame.Members['Beam2'].rho_increased(1))
+#print(frame.Plates['R3'].M_HRZ())
+
 
 """
 frame.add_member_dist_load('Beam3','FZ',-10e3,-30e3)
@@ -94,30 +113,41 @@ frame.add_member_dist_load('Beam8','FZ',-30e3,-1e3)
 """
 
 #Add load combination
-#frame.add_load_combo('COMB1',{'Case 1': 1, 'P': 1})
+frame.add_load_combo('COMB1',{'N': 1})
+frame.add_load_combo('static_combo',{'P':1})
 
 # Analyse Model
 #print(frame.Members["Beam1"].m())
-frame.analyze_modal(sparse = True, tol= 0.01,log = True,num_modes=48)
-#frame.analyze()
+#frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='lumped')
+print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
 
+#print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
 # Some Plots
 #print(frame.Members['Beam1'].max_deflection('dz',combo_name='COMB1'))
 #frame.Members['Beam1'].plot_moment(Direction='My',combo_name='COMB1')
 #print(frame.Members['Column1'].D(combo_name = 'COMB1'))
 
+frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
+print(frame.Natural_Frequencies)
+#frame.set_active_mode(1)
+#print(frame.Natural_Frequencies)
+#print(frame.Natural_Frequencies)
+"""
+import numpy as np
+f_list = [2,2.8,3.6,4.21,4.4,5.2,5.7,6,6.8,7.6,8.4,9.2,10]
+for f in f_list:
+    frame.set_load_frequency_to_query_results_for(f,'COMB1')
+    print(round(f,2)," Hz :",round(1000*frame.Nodes['N11'].DX['COMB1'],2))
 
-frame.set_active_mode(48)
-print(frame.natural_frequency())
-from PyNite.Visualization import Renderer
-model = Renderer(frame)
-model.annotation_size= 0.1
-model.render_loads= False
-model.combo_name = 'Modal Combo'
-#model.combo_name = 'COMB1'
-model.deformed_shape = True
-model.set_deformed_scale(1)
-model.render_model()
+print(frame.Natural_Frequencies) """
+from PyNite.Visualization import render_model
+
+render_model(model=frame,
+             deformed_scale=50,
+             render_loads=True,
+             combo_name='COMB1',
+             annotation_size=0.1,
+             deformed_shape=True)
 
 
 
