@@ -21,6 +21,7 @@ from PyNite.Plate3D import Plate3D
 from PyNite.LoadCombo import LoadCombo
 from PyNite.MassCase import MassCase
 from PyNite.Mesh import Mesh, RectangleMesh, AnnulusMesh, FrustrumMesh, CylinderMesh
+from PyNite import Analysis
 
 from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError
 
@@ -1046,19 +1047,21 @@ class FEModel3D():
         # Flag the model as unsolved
         self.solution = None
 
-    def add_load_combo(self, name, factors, combo_type='strength'):
+    def add_load_combo(self, name, factors, combo_tags=None):
         """Adds a load combination to the model.
 
         :param name: A unique name for the load combination (e.g. '1.2D+1.6L+0.5S' or 'Gravity Combo').
         :type name: str
         :param factors: A dictionary containing load cases and their corresponding factors (e.g. {'D':1.2, 'L':1.6, 'S':0.5}).
         :type factors: dict
-        :param combo_type: A description of the type of load combination (e.g. 'strength', 'service'). This has no effect on the analysis. It can be used to mark special combinations for easier filtering through them later on. Defaults to 'service'.
-        :type combo_type: str, optional
+        :param combo_tags: A list of tags used to categorize load combinations. Default is `None`. This can be useful for filtering results later on, or for limiting analysis to only those combinations with certain tags. This feature is provided for convenience. It is not necessary to use tags.
+        :type combo_tags: list, optional
+                    
         """
 
+
         # Create a new load combination object
-        new_combo = LoadCombo(name, combo_type, factors)
+        new_combo = LoadCombo(name, combo_tags, factors)
 
         # Add the load combination to the dictionary of load combinations
         self.LoadCombos[name] = new_combo
@@ -1678,10 +1681,9 @@ class FEModel3D():
         # Check that there are no nodal instabilities
         if check_stability:
             if log: print('- Checking nodal stability')
-            if sparse:
-                self._check_stability(K.tocsr())
-            else:
-                self._check_stability(K)
+
+            if sparse: Analysis._check_stability(self, K.tocsr())
+            else: Analysis._check_stability(self, K)
 
         # Return the global stiffness matrix
         return K
@@ -2235,7 +2237,7 @@ class FEModel3D():
             m22 = unp_matrix[D2_indices, :][:, D2_indices]
             return m11, m12, m21, m22
 
-    def analyze(self, log=False, check_stability=True, check_statics=False, max_iter=30, sparse=True):
+    def analyze(self, log=False, check_stability=True, check_statics=False, max_iter=30, sparse=True, combo_tags=None):
         """Performs first-order static analysis. Iterations are performed if tension-only members or compression-only members are present.
 
         :param log: Prints the analysis log to the console if set to True. Default is False.
@@ -2290,8 +2292,17 @@ class FEModel3D():
         # Convert D2 from a list to a vector
         D2 = atleast_2d(D2).T
 
+        # Identify which load combinations to evaluate
+        if combo_tags is None:
+            combo_list = self.LoadCombos.values()
+        else:
+            combo_list = []
+            for combo in self.LoadCombos.values():
+                if any(tag in combo.combo_tags for tag in combo_tags):
+                    combo_list.append(combo)
+
         # Step through each load combination
-        for combo in self.LoadCombos.values():
+        for combo in combo_list:
 
             if log:
                 print('')
@@ -2304,7 +2315,12 @@ class FEModel3D():
 
             # Iterate until convergence or divergence occurs
             while convergence == False and divergence == False:
-
+                
+                # Check for tension/compression-only divergence
+                if iter_count > max_iter:
+                    divergence = True
+                    raise Exception('Model diverged during tension/compression-only analysis')
+                
                 # Get the partitioned global stiffness matrix K11, K12, K21, K22
                 if sparse == True:
                     K11, K12, K21, K22 = self._partition(self.K(combo.name, log, check_stability, sparse).tolil(),
@@ -2381,137 +2397,17 @@ class FEModel3D():
 
                 # Store the calculated global nodal displacements into each node
                 for node in self.Nodes.values():
-                    node.DX[combo.name] = D[node.ID * 6 + 0, 0]
-                    node.DY[combo.name] = D[node.ID * 6 + 1, 0]
-                    node.DZ[combo.name] = D[node.ID * 6 + 2, 0]
-                    node.RX[combo.name] = D[node.ID * 6 + 3, 0]
-                    node.RY[combo.name] = D[node.ID * 6 + 4, 0]
-                    node.RZ[combo.name] = D[node.ID * 6 + 5, 0]
 
-                # Check for divergence
-                if iter_count > max_iter:
-                    divergence = True
-                    raise Exception('Model diverged during tension/compression-only analysis')
+                    node.DX[combo.name] = D[node.ID*6 + 0, 0]
+                    node.DY[combo.name] = D[node.ID*6 + 1, 0]
+                    node.DZ[combo.name] = D[node.ID*6 + 2, 0]
+                    node.RX[combo.name] = D[node.ID*6 + 3, 0]
+                    node.RY[combo.name] = D[node.ID*6 + 4, 0]
+                    node.RZ[combo.name] = D[node.ID*6 + 5, 0]
+                
+                # Check for tension/compression-only convergence
+                convergence = Analysis._check_TC_convergence(self, combo.name, log=log)
 
-                # Assume the model has converged (to be checked below)
-                convergence = True
-
-                # Check tension/compression-only spring supports
-                if log: print('- Checking for tension/compression-only support spring convergence')
-                for node in self.Nodes.values():
-
-                    # Check convergence of tension/compression-only spring supports and activate/deactivate them as necessary
-                    if node.spring_DX[1] is not None:
-                        if ((node.spring_DX[1] == '-' and node.DX[combo.name] > 0)
-                                or (node.spring_DX[1] == '+' and node.DX[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DX[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DX[2] = False
-                        elif ((node.spring_DX[1] == '-' and node.DX[combo.name] < 0)
-                              or (node.spring_DX[1] == '+' and node.DX[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DX[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DX[2] = True
-                    if node.spring_DY[1] is not None:
-                        if ((node.spring_DY[1] == '-' and node.DY[combo.name] > 0)
-                                or (node.spring_DY[1] == '+' and node.DY[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DY[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DY[2] = False
-                        elif ((node.spring_DY[1] == '-' and node.DY[combo.name] < 0)
-                              or (node.spring_DY[1] == '+' and node.DY[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DY[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DY[2] = True
-                    if node.spring_DZ[1] is not None:
-                        if ((node.spring_DZ[1] == '-' and node.DZ[combo.name] > 0)
-                                or (node.spring_DZ[1] == '+' and node.DZ[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DZ[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DZ[2] = False
-                        elif ((node.spring_DZ[1] == '-' and node.DZ[combo.name] < 0)
-                              or (node.spring_DZ[1] == '+' and node.DZ[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DZ[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DZ[2] = True
-                    if node.spring_RX[1] is not None:
-                        if ((node.spring_RX[1] == '-' and node.RX[combo.name] > 0)
-                                or (node.spring_RX[1] == '+' and node.RX[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RX[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RX[2] = False
-                        elif ((node.spring_RX[1] == '-' and node.RX[combo.name] < 0)
-                              or (node.spring_RX[1] == '+' and node.RX[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RX[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RX[2] = True
-                    if node.spring_RY[1] is not None:
-                        if ((node.spring_RY[1] == '-' and node.RY[combo.name] > 0)
-                                or (node.spring_RY[1] == '+' and node.RY[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RY[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RY[2] = False
-                        elif ((node.spring_RY[1] == '-' and node.RY[combo.name] < 0)
-                              or (node.spring_RY[1] == '+' and node.RY[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RY[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RY[2] = True
-                    if node.spring_RZ[1] is not None:
-                        if ((node.spring_RZ[1] == '-' and node.RZ[combo.name] > 0)
-                                or (node.spring_RZ[1] == '+' and node.RZ[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RZ[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RZ[2] = False
-                        elif ((node.spring_RZ[1] == '-' and node.RZ[combo.name] < 0)
-                              or (node.spring_RZ[1] == '+' and node.RZ[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RZ[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RZ[2] = True
-
-                # Check tension/compression-only springs
-                if log: print('- Checking for tension/compression-only spring convergence')
-                for spring in self.Springs.values():
-
-                    if spring.active[combo.name] == True:
-
-                        # Check if tension-only conditions exist
-                        if spring.tension_only == True and spring.axial(combo.name) > 0:
-                            spring.active[combo.name] = False
-                            convergence = False
-
-                        # Check if compression-only conditions exist
-                        elif spring.comp_only == True and spring.axial(combo.name) < 0:
-                            spring.active[combo.name] = False
-                            convergence = False
-
-                # Check tension/compression only members
-                if log: print('- Checking for tension/compression-only member convergence')
-                for phys_member in self.Members.values():
-
-                    # Only run the tension/compression only check if the member is still active
-                    if phys_member.active[combo.name] == True:
-
-                        # Check if tension-only conditions exist
-                        if phys_member.tension_only == True and phys_member.max_axial(combo.name) > 0:
-                            phys_member.active[combo.name] = False
-                            convergence = False
-
-                        # Check if compression-only conditions exist
-                        elif phys_member.comp_only == True and phys_member.min_axial(combo.name) < 0:
-                            phys_member.active[combo.name] = False
-                            convergence = False
 
                 if convergence == False:
                     if log: print(
@@ -2524,7 +2420,7 @@ class FEModel3D():
                 iter_count += 1
 
         # Calculate reactions
-        self._calc_reactions()
+        Analysis._calc_reactions(self, log, combo_tags)
 
         if log:
             print('')
@@ -2533,12 +2429,14 @@ class FEModel3D():
 
         # Check statics if requested
         if check_statics == True:
-            self._check_statics()
+
+            Analysis._check_statics(self, combo_tags)
+        
 
         # Flag the model as solved
         self.solution = 'Linear TC'
 
-    def analyze_linear(self, log=False, check_stability=True, check_statics=False, sparse=True):
+    def analyze_linear(self, log=False, check_stability=True, check_statics=False, sparse=True, combo_tags=None):
         """Performs first-order static analysis. This analysis procedure is much faster since it only assembles the global stiffness matrix once, rather than once for each load combination. It is not appropriate when non-linear behavior such as tension/compression only analysis or P-Delta analysis are required.
 
         :param log: Prints the analysis log to the console if set to True. Default is False.
@@ -2591,6 +2489,7 @@ class FEModel3D():
         D2 = atleast_2d(D2).T
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
+        # Note that for linear analysis the stiffness matrix can be obtained for any load combination, as it's the same for all of them
         combo_name = list(self.LoadCombos.keys())[0]
         if sparse == True:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices,
@@ -2599,8 +2498,17 @@ class FEModel3D():
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices,
                                                  D2_indices)
 
+        # Identify which load combinations to evaluate
+        if combo_tags is None:
+            combo_list = self.LoadCombos.values()
+        else:
+            combo_list = []
+            for combo in self.LoadCombos.values():
+                if any(tag in combo.combo_tags for tag in combo_tags):
+                    combo_list.append(combo)
+
         # Step through each load combination
-        for combo in self.LoadCombos.values():
+        for combo in combo_list:
 
             if log:
                 print('')
@@ -2682,7 +2590,7 @@ class FEModel3D():
                 node.RZ[combo.name] = D[node.ID * 6 + 5, 0]
 
         # Calculate reactions
-        self._calc_reactions()
+        Analysis._calc_reactions(self, log, combo_tags)
 
         if log:
             print('')
@@ -2691,12 +2599,16 @@ class FEModel3D():
 
         # Check statics if requested
         if check_statics == True:
+
+            Analysis._check_statics(self, combo_tags)
+        
+
             self._check_statics()
 
         # Flag the model as solved
         self.solution = 'Linear'
 
-    def analyze_PDelta(self, log=False, check_stability=True, max_iter=30, tol=0.01, sparse=True):
+    def analyze_PDelta(self, log=False, check_stability=True, max_iter=30, tol=0.01, sparse=True, combo_tags=None):
         """Performs second order (P-Delta) analysis. This type of analysis is appropriate for most models using beams, columns and braces. Second order analysis is usually required by material specific codes. The analysis is iterative and takes longer to solve. Models with slender members and/or members with combined bending and axial loads will generally have more significant P-Delta effects. P-Delta effects in plates/quads are not considered.
 
         :param log: Prints updates to the console if set to True. Default is False.
@@ -2752,7 +2664,20 @@ class FEModel3D():
         # Convert D2 from a list to a matrix
         D2 = array(D2, ndmin=2).T
 
+        # Identify which load combinations to evaluate
+        if combo_tags is None:
+            combo_list = self.LoadCombos.values()
+        else:
+            combo_list = []
+            for combo in self.LoadCombos.values():
+                if any(tag in combo.combo_tags for tag in combo_tags):
+                    combo_list.append(combo)
+
         # Step through each load combination
+
+        for combo in combo_list:
+            
+
         for combo in self.LoadCombos.values():
 
             if log:
@@ -2790,7 +2715,7 @@ class FEModel3D():
 
                     # Check that the structure is stable
                     if log: print('- Checking stability')
-                    self._check_stability(K11)
+                    Analysis._check_stability(self, K11)
 
                     # Assemble the force matrices
                     FER1, FER2 = self._partition(self.FER(combo.name), D1_indices, D2_indices)  # Fixed end reactions
@@ -2899,140 +2824,16 @@ class FEModel3D():
                     node.RZ[combo.name] = D[node.ID * 6 + 5, 0]
 
                 # Assume the model has converged (to be checked below)
-                convergence_TC = True
 
-                # Check tension/compression-only spring supports
-                if log: print('- Checking for tension/compression-only support spring convergence')
-                for node in self.Nodes.values():
-
-                    # Check convergence of tension/compression-only spring supports and activate/deactivate them as necessary
-                    if node.spring_DX[1] is not None:
-                        if ((node.spring_DX[1] == '-' and node.DX[combo.name] > 0)
-                                or (node.spring_DX[1] == '+' and node.DX[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DX[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DX[2] = False
-                        elif ((node.spring_DX[1] == '-' and node.DX[combo.name] < 0)
-                              or (node.spring_DX[1] == '+' and node.DX[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DX[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DX[2] = True
-                    if node.spring_DY[1] is not None:
-                        if ((node.spring_DY[1] == '-' and node.DY[combo.name] > 0)
-                                or (node.spring_DY[1] == '+' and node.DY[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DY[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DY[2] = False
-                        elif ((node.spring_DY[1] == '-' and node.DY[combo.name] < 0)
-                              or (node.spring_DY[1] == '+' and node.DY[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DY[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DY[2] = True
-                    if node.spring_DZ[1] is not None:
-                        if ((node.spring_DZ[1] == '-' and node.DZ[combo.name] > 0)
-                                or (node.spring_DZ[1] == '+' and node.DZ[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_DZ[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_DZ[2] = False
-                        elif ((node.spring_DZ[1] == '-' and node.DZ[combo.name] < 0)
-                              or (node.spring_DZ[1] == '+' and node.DZ[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_DZ[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_DZ[2] = True
-                    if node.spring_RX[1] is not None:
-                        if ((node.spring_RX[1] == '-' and node.RX[combo.name] > 0)
-                                or (node.spring_RX[1] == '+' and node.RX[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RX[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RX[2] = False
-                        elif ((node.spring_RX[1] == '-' and node.RX[combo.name] < 0)
-                              or (node.spring_RX[1] == '+' and node.RX[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RX[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RX[2] = True
-                    if node.spring_RY[1] is not None:
-                        if ((node.spring_RY[1] == '-' and node.RY[combo.name] > 0)
-                                or (node.spring_RY[1] == '+' and node.RY[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RY[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RY[2] = False
-                        elif ((node.spring_RY[1] == '-' and node.RY[combo.name] < 0)
-                              or (node.spring_RY[1] == '+' and node.RY[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RY[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RY[2] = True
-                    if node.spring_RZ[1] is not None:
-                        if ((node.spring_RZ[1] == '-' and node.RZ[combo.name] > 0)
-                                or (node.spring_RZ[1] == '+' and node.RZ[combo.name] < 0)):
-                            # Check if the spring is switching from active to inactive
-                            if node.spring_RZ[2] == True: convergence = False
-                            # Make sure the spring is innactive
-                            node.spring_RZ[2] = False
-                        elif ((node.spring_RZ[1] == '-' and node.RZ[combo.name] < 0)
-                              or (node.spring_RZ[1] == '+' and node.RZ[combo.name] > 0)):
-                            # Check if the spring is switching from inactive to active
-                            if node.spring_RZ[2] == False: convergence = False
-                            # Make sure the spring is active
-                            node.spring_RZ[2] = True
-
-                # Check for tension/compression-only springs that need to be deactivated
-                if log: print('- Checking for tension/compression-only spring convergence')
-                for spring in self.Springs.values():
-
-                    # Only run the tension/compression only check if the spring is still active
-                    if spring.active[combo.name] == True:
-
-                        # Check if tension-only conditions exist
-                        if spring.tension_only == True and spring.axial(combo.name) > 0:
-
-                            spring.active[combo.name] = False
-                            convergence_TC = False
-
-                        # Check if compression-only conditions exist
-                        elif spring.comp_only == True and spring.axial(combo.name) < 0:
-
-                            spring.active[combo.name] = False
-                            convergence_TC = False
-
-                # Check for tension/compression-only members that need to be deactivated
-                if log: print('- Checking for tension/compression-only member convergence')
-                for phys_member in self.Members.values():
-
-                    # Only run the tension/compression only check if the member is still active
-                    if phys_member.active[combo.name] == True:
-
-                        # Check if tension-only conditions exist
-                        if phys_member.tension_only == True and phys_member.max_axial(combo.name) > 0:
-
-                            phys_member.active[combo.name] = False
-                            for member in phys_member.sub_members.values():
-                                member.active[combo.name] = False
-                            convergence_TC = False
-
-                        # Check if compression-only conditions exist
-                        elif phys_member.comp_only == True and phys_member.min_axial(combo.name) < 0:
-
-                            phys_member.active[combo.name] = False
-                            for member in phys_member.sub_members.values():
-                                member.active[combo.name] = False
-                            convergence_TC = False
+                convergence_TC = Analysis._check_TC_convergence(self, combo.name, log)
+                
 
                 # Report on convergence of tension/compression only analysis
                 if convergence_TC == False:
 
                     if log:
                         print('- Tension/compression-only analysis did not converge on this iteration')
-                        print('- Stiffness matrix will be adjusted for newly deactivated elements')
+                        print('- Stiffness matrix will be adjusted')
                         print('- P-Delta analysis will be restarted')
 
                     # Increment the tension/compression-only iteration count
@@ -3082,7 +2883,7 @@ class FEModel3D():
                 iter_count_PD += 1
 
         # Calculate reactions
-        self._calc_reactions()
+        Analysis._calc_reactions(self, log, combo_tags)
 
         if log:
             print('')
@@ -3091,6 +2892,9 @@ class FEModel3D():
 
         # Flag the model as solved
         self.solution = 'P-Delta'
+
+       
+
 
     def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
                       type_of_mass_matrix = 'consistent'):
@@ -4169,6 +3973,7 @@ class FEModel3D():
         # Print the static check table
         print(statics_table)
         print('')
+
 
     def _renumber(self):
         """
