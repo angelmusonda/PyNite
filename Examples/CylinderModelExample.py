@@ -122,16 +122,12 @@ frame.add_load_combo('static_combo',{'P':1})
 print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
 
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
-# Some Plots
-#print(frame.Members['Beam1'].max_deflection('dz',combo_name='COMB1'))
-#frame.Members['Beam1'].plot_moment(Direction='My',combo_name='COMB1')
-#print(frame.Members['Column1'].D(combo_name = 'COMB1'))
 
 frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
 print(frame.Natural_Frequencies)
 #frame.set_active_mode(1)
 #print(frame.Natural_Frequencies)
-#print(frame.Natural_Frequencies)
+
 """
 import numpy as np
 f_list = [2,2.8,3.6,4.21,4.4,5.2,5.7,6,6.8,7.6,8.4,9.2,10]
