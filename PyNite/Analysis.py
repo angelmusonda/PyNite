@@ -1,4 +1,35 @@
 from math import isclose
+from PyNite.LoadCombo import LoadCombo
+
+def _prepare_model(model):
+    """Prepares a model for analysis by ensuring at least one load combination is defined, generating all meshes that have not already been generated, activating all non-linear members, and internally numbering all nodes and elements.
+
+    :param model: The model being prepared for analysis.
+    :type model: FEModel3D
+    """
+
+    # Ensure there is at least 1 load combination to solve if the user didn't define any
+    if model.LoadCombos == {}:
+        # Create and add a default load combination to the dictionary of load combinations
+        model.LoadCombos['Combo 1'] = LoadCombo('Combo 1', factors={'Case 1':1.0})
+    
+    # Generate all meshes
+    for mesh in model.Meshes.values():
+        if mesh.is_generated == False:
+            mesh.generate()
+
+    # Activate all springs and members for all load combinations
+    for spring in model.Springs.values():
+        for combo_name in model.LoadCombos.keys():
+            spring.active[combo_name] = True
+    
+    # Activate all physical members for all load combinations
+    for phys_member in model.Members.values():
+        for combo_name in model.LoadCombos.keys():
+            phys_member.active[combo_name] = True
+    
+    # Assign an internal ID to all nodes and elements in the model. This number is different from the name used by the user to identify nodes and elements.
+    _renumber(model)
 
 def _check_stability(model, K):
     """
@@ -543,3 +574,33 @@ def _check_statics(model, combo_tags=None):
     # Print the static check table
     print(statics_table)
     print('')
+
+def _renumber(model):
+    """
+    Assigns node and element ID numbers to be used internally by the program. Numbers are
+    assigned according to the order in which they occur in each dictionary.
+    """
+    
+    # Number each node in the model
+    for id, node in enumerate(model.Nodes.values()):
+        node.ID = id
+    
+    # Number each spring in the model
+    for id, spring in enumerate(model.Springs.values()):
+        spring.ID = id
+
+    # Descritize all the physical members and number each member in the model
+    id = 0
+    for phys_member in model.Members.values():
+        phys_member.descritize()
+        for member in phys_member.sub_members.values():
+            member.ID = id
+            id += 1
+    
+    # Number each plate in the model
+    for id, plate in enumerate(model.Plates.values()):
+        plate.ID = id
+    
+    # Number each quadrilateral in the model
+    for id, quad in enumerate(model.Quads.values()):
+        quad.ID = id

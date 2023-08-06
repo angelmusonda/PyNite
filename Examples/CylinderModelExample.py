@@ -118,13 +118,13 @@ frame.add_load_combo('static_combo',{'P':1})
 
 # Analyse Model
 #print(frame.Members["Beam1"].m())
-#frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='lumped')
-print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
+frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='lumped')
+#print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
 
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
 
-frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
-print(frame.Natural_Frequencies)
+#frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
+#print(frame.Natural_Frequencies)
 #frame.set_active_mode(1)
 #print(frame.Natural_Frequencies)
 
@@ -141,7 +141,7 @@ from PyNite.Visualization import render_model
 render_model(model=frame,
              deformed_scale=50,
              render_loads=True,
-             combo_name='COMB1',
+             combo_name='Modal Combo',
              annotation_size=0.1,
              deformed_shape=True)
 
