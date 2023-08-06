@@ -2258,11 +2258,16 @@ class FEModel3D():
             print('+-----------+')
             print('| Analyzing |')
             print('+-----------+')
-
+        
         # Import `scipy` features if the sparse solver is being used
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
+
+        # Prepare the model for analysis
+        Analysis._prepare_model(self)
+
+"""
         # Ensure there is at least 1 load combination to solve if the user didn't define any
         if self.LoadCombos == {}:
             # Create and add a default load combination to the dictionary of load combinations
@@ -2284,7 +2289,8 @@ class FEModel3D():
                 phys_member.active[combo_name] = True
 
         # Assign an internal ID to all nodes and elements in the model
-        self._renumber()
+        self._renumber() """
+
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -2454,11 +2460,15 @@ class FEModel3D():
             print('+-------------------+')
             print('| Analyzing: Linear |')
             print('+-------------------+')
-
+        
         # Import `scipy` features if the sparse solver is being used
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
+
+        # Prepare the model for analysis
+        Analysis._prepare_model(self)
+"""
         # Ensure there is at least 1 load combination to solve if the user didn't define any
         if self.LoadCombos == {}:
             # Create and add a default load combination to the dictionary of load combinations
@@ -2480,7 +2490,8 @@ class FEModel3D():
                 phys_member.active[combo_name] = True
 
         # Assign an internal ID to all nodes and elements in the model
-        self._renumber()
+        self._renumber()"""
+
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -2632,6 +2643,11 @@ class FEModel3D():
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
+
+        # Prepare the model for analysis
+        Analysis._prepare_model(self)
+        
+ """
         # Ensure there is at least 1 load combination to solve if the user didn't define any
         if self.LoadCombos == {}:
             # Create and add a default load combination to the dictionary of load combinations
@@ -2655,6 +2671,7 @@ class FEModel3D():
 
         # Assign an internal ID to all nodes and elements in the model
         self._renumber()
+"""
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -2887,11 +2904,7 @@ class FEModel3D():
 
         # Flag the model as solved
         self.solution = 'P-Delta'
-
-       
-
-
-    def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
+   def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
                       type_of_mass_matrix = 'consistent'):
         """Performs modal analysis.
 
@@ -3597,6 +3610,7 @@ class FEModel3D():
         # Number each quadrilateral in the model
         for id, quad in enumerate(self.Quads.values()):
             quad.ID = id
+
 
     def unique_name(self, dictionary, prefix):
         """Returns the next available unique name for a dictionary of objects.
