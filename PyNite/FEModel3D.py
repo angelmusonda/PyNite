@@ -2267,31 +2267,6 @@ class FEModel3D():
         # Prepare the model for analysis
         Analysis._prepare_model(self)
 
-"""
-        # Ensure there is at least 1 load combination to solve if the user didn't define any
-        if self.LoadCombos == {}:
-            # Create and add a default load combination to the dictionary of load combinations
-            self.LoadCombos['Combo 1'] = LoadCombo('Combo 1', factors={'Case 1': 1.0})
-
-        # Generate all meshes
-        for mesh in self.Meshes.values():
-            if mesh.is_generated == False:
-                mesh.generate()
-
-        # Activate all springs and members for all load combinations
-        for spring in self.Springs.values():
-            for combo_name in self.LoadCombos.keys():
-                spring.active[combo_name] = True
-
-        # Activate all physical members for all load combinations
-        for phys_member in self.Members.values():
-            for combo_name in self.LoadCombos.keys():
-                phys_member.active[combo_name] = True
-
-        # Assign an internal ID to all nodes and elements in the model
-        self._renumber() """
-
-
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
 
@@ -2468,29 +2443,6 @@ class FEModel3D():
 
         # Prepare the model for analysis
         Analysis._prepare_model(self)
-"""
-        # Ensure there is at least 1 load combination to solve if the user didn't define any
-        if self.LoadCombos == {}:
-            # Create and add a default load combination to the dictionary of load combinations
-            self.LoadCombos['Combo 1'] = LoadCombo('Combo 1', factors={'Case 1': 1.0})
-
-        # Generate all meshes
-        for mesh in self.Meshes.values():
-            if mesh.is_generated == False:
-                mesh.generate()
-
-        # Activate all springs for all load combinations
-        for spring in self.Springs.values():
-            for combo_name in self.LoadCombos.keys():
-                spring.active[combo_name] = True
-
-        # Activate all physical members for all load combinations
-        for phys_member in self.Members.values():
-            for combo_name in self.LoadCombos.keys():
-                phys_member.active[combo_name] = True
-
-        # Assign an internal ID to all nodes and elements in the model
-        self._renumber()"""
 
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
@@ -2646,32 +2598,7 @@ class FEModel3D():
 
         # Prepare the model for analysis
         Analysis._prepare_model(self)
-        
- """
-        # Ensure there is at least 1 load combination to solve if the user didn't define any
-        if self.LoadCombos == {}:
-            # Create and add a default load combination to the dictionary of load combinations
-            self.LoadCombos['Combo 1'] = LoadCombo('Combo 1', factors={'Case 1': 1.0})
 
-        # Generate all meshes
-        for mesh in self.Meshes.values():
-            if mesh.is_generated == False:
-                mesh.generate()
-
-        # Activate all springs for all load combinations. They can be turned inactive
-        # during the course of the tension/compression-only analysis
-        for spring in self.Springs.values():
-            for combo_name in self.LoadCombos.keys():
-                spring.active[combo_name] = True
-
-        # Activate all physical members for all load combinations
-        for phys_member in self.Members.values():
-            for combo_name in self.LoadCombos.keys():
-                phys_member.active[combo_name] = True
-
-        # Assign an internal ID to all nodes and elements in the model
-        self._renumber()
-"""
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -2904,7 +2831,8 @@ class FEModel3D():
 
         # Flag the model as solved
         self.solution = 'P-Delta'
-   def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
+
+    def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
                       type_of_mass_matrix = 'consistent'):
         """Performs modal analysis.
 
@@ -2936,21 +2864,8 @@ class FEModel3D():
         if 'Modal Combo' not in self.LoadCombos:
             self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 0})
 
-        # Generate all meshes
-        for mesh in self.Meshes.values():
-            if mesh.is_generated == False:
-                mesh.generate()
-
-        # Activate all springs
-        for spring in self.Springs.values():
-            spring.active['Modal Combo'] = True
-
-        # Activate all physical members
-        for phys_member in self.Members.values():
-            phys_member.active['Modal Combo'] = True
-
-        # Assign an internal ID to all nodes and elements in the model
-        self._renumber()
+        #Prepare model
+        Analysis._prepare_model(self)
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -3187,17 +3102,8 @@ class FEModel3D():
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
-        # Activate all springs for the harmonic load combination
-
-        for spring in self.Springs.values():
-            spring.active[harmonic_combo] = True
-
-        # Activate all physical members for the harmonic load combination
-        for phys_member in self.Members.values():
-            phys_member.active[harmonic_combo] = True
-
-        # Assign an internal ID to all nodes and elements in the model
-        self._renumber()
+        # Prepare model
+        Analysis._prepare_model(self)
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = self._aux_list()
@@ -3580,36 +3486,6 @@ class FEModel3D():
 
         # Restore the load combos
         self.LoadCombos = copy.deepcopy(load_combos_temp)
-
-    def _renumber(self):
-        """
-        Assigns node and element ID numbers to be used internally by the program. Numbers are
-        assigned according to the order in which they occur in each dictionary.
-        """
-
-        # Number each node in the model
-        for id, node in enumerate(self.Nodes.values()):
-            node.ID = id
-
-        # Number each spring in the model
-        for id, spring in enumerate(self.Springs.values()):
-            spring.ID = id
-
-        # Descritize all the physical members and number each member in the model
-        id = 0
-        for phys_member in self.Members.values():
-            phys_member.descritize()
-            for member in phys_member.sub_members.values():
-                member.ID = id
-                id += 1
-
-        # Number each plate in the model
-        for id, plate in enumerate(self.Plates.values()):
-            plate.ID = id
-
-        # Number each quadrilateral in the model
-        for id, quad in enumerate(self.Quads.values()):
-            quad.ID = id
 
 
     def unique_name(self, dictionary, prefix):
