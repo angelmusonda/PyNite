@@ -54,7 +54,7 @@ frame.add_member('Beam8', 'N12', 'N9', 'Concrete', Iy, Iz, J, A)
 Iy = 0.3*0.3**3 / 12
 Iz = Iy
 A = 0.3*0.3
-J = Iy + Iz
+J = 0.3*0.3*(1/3 - 0.21*0.3/0.3 * (1-0.3**4 / (12*0.3**4)))
 
 # Add columns
 frame.add_member('Column1', 'N1', 'N5', 'Concrete', Iy, Iz, J, A)
@@ -118,9 +118,9 @@ frame.add_load_combo('static_combo',{'P':1})
 
 # Analyse Model
 #print(frame.Members["Beam1"].m())
-frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='lumped')
+frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='consistent')
 #print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
-
+#frame.analyze_linear()
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
 
 #frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
@@ -134,13 +134,13 @@ f_list = [2,2.8,3.6,4.21,4.4,5.2,5.7,6,6.8,7.6,8.4,9.2,10]
 for f in f_list:
     frame.set_load_frequency_to_query_results_for(f,'COMB1')
     print(round(f,2)," Hz :",round(1000*frame.Nodes['N11'].DX['COMB1'],2))
-
-print(frame.Natural_Frequencies) """
+"""
+print(frame.Natural_Frequencies)
 from PyNite.Visualization import render_model
 
 render_model(model=frame,
              deformed_scale=50,
-             render_loads=True,
+             render_loads=False,
              combo_name='Modal Combo',
              annotation_size=0.1,
              deformed_shape=True)

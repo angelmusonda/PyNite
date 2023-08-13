@@ -2625,7 +2625,7 @@ class FEModel3D():
         Analysis._prepare_model(self)
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = self._aux_list()
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
         # In the context of mode shapes, D2 should just be zeroes
         D2 = zeros((len(D2), 1))
@@ -2710,6 +2710,8 @@ class FEModel3D():
         # Form the global displacement vector, D, from D1 and D2
         D1 = eigVec[:, self.Active_Mode - 1].reshape((-1, 1))
         D = zeros((len(self.Nodes) * 6, 1))
+
+        #Analysis._store_displacements(self, D1, D2, D1_indices, D2_indices, 'Modal Combo')
 
         for node in self.Nodes.values():
 
@@ -2863,10 +2865,10 @@ class FEModel3D():
         Analysis._prepare_model(self)
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = self._aux_list()
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
         # Convert D2 from a list to a vector
-        D2 = atleast_2d(D2).T
+        D2 = atleast_2d(D2)
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
         if sparse == True:
@@ -3025,13 +3027,9 @@ class FEModel3D():
                 n += 1
             self._Max_D_Harmonic = D_temp
 
-
-
-
         except:
             raise Exception("'The stiffness matrix is singular, which implies rigid body motion."
                             "The structure is unstable. Aborting analysis.")
-
 
         if log:
             print('')
@@ -3073,7 +3071,7 @@ class FEModel3D():
 
     def set_active_mode(self, active_mode):
         """
-        Sets the active mode
+        Sets the mode for which to view results
 
         Parameters
         ---------
@@ -3104,7 +3102,7 @@ class FEModel3D():
 
             # Form the global displacement vector, D, from D1 and D2
             # Get the free and constrained indices
-            D1_indices, D2_indices, D2 = self._aux_list()
+            D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
             # Set zero modal displacements to the constrained DOFs
             D2 = zeros((len(D2), 1))
@@ -3161,6 +3159,12 @@ class FEModel3D():
             raise ResultsNotFoundError
 
     def natural_frequency(self, mode=None):
+        """
+        Returns the natural frequency of a given mode
+
+        :param mode: The mode of vibration for which the natural frequency is required
+        :type mode: int
+        """
         # Check the results availability
         if self.solution == "Modal":
             if mode is None:

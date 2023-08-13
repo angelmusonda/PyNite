@@ -278,7 +278,7 @@ class Member3D():
         """
 
         #Get the properties needed to form the member local mass matrix
-        J = self.J
+        Ix = self.Iy + self.Iz
         A = self.A
         L = self.L()
         #rho = self.rho
@@ -289,13 +289,13 @@ class Member3D():
         m = array([[rho*A*L/3,      0,      0,      0,      0,      0, rho*A*L/6,      0,      0,     0,     0,     0],
                    [0,  13*rho*A*L/35,  0,  0,  0, 11*rho*A*L**2/210,  0, 9*rho*A*L/70,  0,  0, 0, -13*rho*A*L**2/420],
                    [0,  0, 13*rho*A*L/35,  0, -11*rho*A*L**2/210,  0,  0,  0, 9*rho*A*L/70,  0, 13*rho*A*L**2/420,  0],
-                   [0,      0,      0, rho*L*J/3,       0,       0,       0,       0,     0,  rho*L*J/6,     0,     0],
+                   [0,      0,      0, rho*L*Ix/3,       0,       0,       0,       0,     0,  rho*L*Ix/6,     0,     0],
                    [0,  0, -11*rho*A*L**2/210,  0, rho*A*L**3/105, 0, 0, 0, -13*rho*A*L**2/420, 0, -rho*A*L**3/140, 0],
                    [0,  11*rho*A*L**2/210,  0,  0,  0, rho*A*L**3/105, 0, 13*rho*A*L**2/420, 0, 0, 0, -rho*A*L**3/140],
                    [rho*A*L/6,      0,      0,      0,      0,      0, rho*A*L/3,      0,      0,      0,     0,    0],
                    [0, 9*rho*A*L/70,  0,  0,  0, 13*rho*A*L**2/420,  0, 13*rho*A*L/35,  0,  0,  0, -11*rho*A*L**2/210],
                    [0,  0, 9*rho*A*L/70,  0, -13*rho*A*L**2/420,  0,  0,  0, 13*rho*A*L/35,  0,  11*rho*A*L**2/210, 0],
-                   [0,      0,      0, rho*L*J/6,      0,       0,      0,      0,      0, rho*L*J/3,       0,      0],
+                   [0,      0,      0, rho*L*Ix/6,      0,       0,      0,      0,      0, rho*L*Ix/3,       0,      0],
                    [0, 0, 13*rho*A*L**2/420,  0, -rho*A*L**3/140,  0,  0,  0, 11*rho*A*L**2/210, 0, rho*A*L**3/105, 0],
                    [0,  -13*rho*A*L**2/420,  0, 0, 0, -rho*A*L**3/140, 0, -11*rho*A*L**2/210, 0, 0, 0, rho*A*L**3/105]
                    ])
@@ -313,7 +313,7 @@ class Member3D():
         """
 
         #Get the properties needed to form the member local mass matrix
-        J = self.J
+        Ix = self.Iy + self.Iz
         A = self.A
         L = self.L()
         #rho = self.rho
@@ -324,13 +324,13 @@ class Member3D():
         m = array([[rho*A*L/2,    0,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,    rho*A*L/2,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,   rho*A*L/2,     0,      0,     0,    0,    0,    0,     0,       0,    0],
-                   [0,      0,    0,    rho*L*J/3,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,    rho*L*Ix/3,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0, rho*A*L**3/78,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0, rho*A*L**3/78,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,   rho*A*L/2,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,  rho*A*L/2,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,  rho*A*L/2,     0,       0,    0],
-                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*J/3,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*Ix/3,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,  rho*A*L**3/78,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,     0, rho*A*L**3/78]
                    ])
