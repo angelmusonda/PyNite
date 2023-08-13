@@ -72,7 +72,7 @@ class Member3D():
         return self.i_node.distance(self.j_node)
 
 #%%
-    def _aux_list(self):
+    def _partition_D(self):
         """
         Builds lists of unreleased and released degree of freedom indices for the member.
 
@@ -278,7 +278,7 @@ class Member3D():
         """
 
         #Get the properties needed to form the member local mass matrix
-        J = self.J
+        Ix = self.Iy + self.Iz
         A = self.A
         L = self.L()
         #rho = self.rho
@@ -289,13 +289,13 @@ class Member3D():
         m = array([[rho*A*L/3,      0,      0,      0,      0,      0, rho*A*L/6,      0,      0,     0,     0,     0],
                    [0,  13*rho*A*L/35,  0,  0,  0, 11*rho*A*L**2/210,  0, 9*rho*A*L/70,  0,  0, 0, -13*rho*A*L**2/420],
                    [0,  0, 13*rho*A*L/35,  0, -11*rho*A*L**2/210,  0,  0,  0, 9*rho*A*L/70,  0, 13*rho*A*L**2/420,  0],
-                   [0,      0,      0, rho*L*J/3,       0,       0,       0,       0,     0,  rho*L*J/6,     0,     0],
+                   [0,      0,      0, rho*L*Ix/3,       0,       0,       0,       0,     0,  rho*L*Ix/6,     0,     0],
                    [0,  0, -11*rho*A*L**2/210,  0, rho*A*L**3/105, 0, 0, 0, -13*rho*A*L**2/420, 0, -rho*A*L**3/140, 0],
                    [0,  11*rho*A*L**2/210,  0,  0,  0, rho*A*L**3/105, 0, 13*rho*A*L**2/420, 0, 0, 0, -rho*A*L**3/140],
                    [rho*A*L/6,      0,      0,      0,      0,      0, rho*A*L/3,      0,      0,      0,     0,    0],
                    [0, 9*rho*A*L/70,  0,  0,  0, 13*rho*A*L**2/420,  0, 13*rho*A*L/35,  0,  0,  0, -11*rho*A*L**2/210],
                    [0,  0, 9*rho*A*L/70,  0, -13*rho*A*L**2/420,  0,  0,  0, 13*rho*A*L/35,  0,  11*rho*A*L**2/210, 0],
-                   [0,      0,      0, rho*L*J/6,      0,       0,      0,      0,      0, rho*L*J/3,       0,      0],
+                   [0,      0,      0, rho*L*Ix/6,      0,       0,      0,      0,      0, rho*L*Ix/3,       0,      0],
                    [0, 0, 13*rho*A*L**2/420,  0, -rho*A*L**3/140,  0,  0,  0, 11*rho*A*L**2/210, 0, rho*A*L**3/105, 0],
                    [0,  -13*rho*A*L**2/420,  0, 0, 0, -rho*A*L**3/140, 0, -11*rho*A*L**2/210, 0, 0, 0, rho*A*L**3/105]
                    ])
@@ -313,7 +313,7 @@ class Member3D():
         """
 
         #Get the properties needed to form the member local mass matrix
-        J = self.J
+        Ix = self.Iy + self.Iz
         A = self.A
         L = self.L()
         #rho = self.rho
@@ -324,13 +324,13 @@ class Member3D():
         m = array([[rho*A*L/2,    0,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,    rho*A*L/2,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,   rho*A*L/2,     0,      0,     0,    0,    0,    0,     0,       0,    0],
-                   [0,      0,    0,    rho*L*J/3,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,    rho*L*Ix/3,      0,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0, rho*A*L**3/78,     0,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0, rho*A*L**3/78,    0,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,   rho*A*L/2,    0,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,  rho*A*L/2,    0,     0,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,  rho*A*L/2,     0,       0,    0],
-                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*J/3,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*Ix/3,       0,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,  rho*A*L**3/78,    0],
                    [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,     0, rho*A*L**3/78]
                    ])
@@ -393,7 +393,7 @@ class Member3D():
         """
         
         # Get the lists of unreleased and released degree of freedom indices
-        R1_indices, R2_indices = self._aux_list()
+        R1_indices, R2_indices = self._partition_D()
 
         # Partition the local stiffness matrix and local fixed end reaction vector
         k11, k12, k21, k22 = self._partition(self._k_unc())
@@ -500,7 +500,7 @@ class Member3D():
         """
 
         # Create auxiliary lists of released/unreleased DOFs
-        R1_indices, R2_indices = self._aux_list()
+        R1_indices, R2_indices = self._partition_D()
 
         # Partition the matrix by slicing
         if unp_matrix.shape[1] == 1:
