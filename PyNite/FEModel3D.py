@@ -1277,98 +1277,7 @@ class FEModel3D():
         # Flag the model as unsolved
         self.solution = None
 
-    def _aux_list(self):
-        """Builds a list with known nodal displacements and with the positions in global stiffness
-           matrix of known and unknown nodal displacements
-
-        :return: A list of the global matrix indices for the unknown nodal displacements (D1_indices). A
-                 list of the global matrix indices for the known nodal displacements (D2_indices). A list
-                 of the known nodal displacements (D2).
-        :rtype: list, list, list
-        """
-
-        D1_indices = []  # A list of the indices for the unknown nodal displacements
-        D2_indices = []  # A list of the indices for the known nodal displacements
-        D2 = []  # A list of the values of the known nodal displacements (D != None)
-
-        # Create the auxiliary table
-        for node in self.Nodes.values():
-
-            # Unknown displacement DX
-            if node.support_DX == False and node.EnforcedDX == None:
-                D1_indices.append(node.ID * 6 + 0)
-            # Known displacement DX
-            elif node.EnforcedDX != None:
-                D2_indices.append(node.ID * 6 + 0)
-                D2.append(node.EnforcedDX)
-            # Support at DX
-            else:
-                D2_indices.append(node.ID * 6 + 0)
-                D2.append(0.0)
-
-            # Unknown displacement DY
-            if node.support_DY == False and node.EnforcedDY == None:
-                D1_indices.append(node.ID * 6 + 1)
-            # Known displacement DY
-            elif node.EnforcedDY != None:
-                D2_indices.append(node.ID * 6 + 1)
-                D2.append(node.EnforcedDY)
-            # Support at DY
-            else:
-                D2_indices.append(node.ID * 6 + 1)
-                D2.append(0.0)
-
-            # Unknown displacement DZ
-            if node.support_DZ == False and node.EnforcedDZ == None:
-                D1_indices.append(node.ID * 6 + 2)
-            # Known displacement DZ
-            elif node.EnforcedDZ != None:
-                D2_indices.append(node.ID * 6 + 2)
-                D2.append(node.EnforcedDZ)
-            # Support at DZ
-            else:
-                D2_indices.append(node.ID * 6 + 2)
-                D2.append(0.0)
-
-            # Unknown displacement RX
-            if node.support_RX == False and node.EnforcedRX == None:
-                D1_indices.append(node.ID * 6 + 3)
-            # Known displacement RX
-            elif node.EnforcedRX != None:
-                D2_indices.append(node.ID * 6 + 3)
-                D2.append(node.EnforcedRX)
-            # Support at RX
-            else:
-                D2_indices.append(node.ID * 6 + 3)
-                D2.append(0.0)
-
-            # Unknown displacement RY
-            if node.support_RY == False and node.EnforcedRY == None:
-                D1_indices.append(node.ID * 6 + 4)
-            # Known displacement RY
-            elif node.EnforcedRY != None:
-                D2_indices.append(node.ID * 6 + 4)
-                D2.append(node.EnforcedRY)
-            # Support at RY
-            else:
-                D2_indices.append(node.ID * 6 + 4)
-                D2.append(0.0)
-
-            # Unknown displacement RZ
-            if node.support_RZ == False and node.EnforcedRZ == None:
-                D1_indices.append(node.ID * 6 + 5)
-            # Known displacement RZ
-            elif node.EnforcedRZ != None:
-                D2_indices.append(node.ID * 6 + 5)
-                D2.append(node.EnforcedRZ)
-            # Support at RZ
-            else:
-                D2_indices.append(node.ID * 6 + 5)
-                D2.append(0.0)
-
-        # Return the indices and the known displacements
-        return D1_indices, D2_indices, D2
-
+        
     def K(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
         """Returns the model's global stiffness matrix. The stiffness matrix will be returned in
            scipy's sparse lil format, which reduces memory usage and can be easily converted to
@@ -2268,19 +2177,10 @@ class FEModel3D():
         Analysis._prepare_model(self)
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = self._aux_list()
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
-        # Convert D2 from a list to a vector
-        D2 = atleast_2d(D2).T
-
-        # Identify which load combinations to evaluate
-        if combo_tags is None:
-            combo_list = self.LoadCombos.values()
-        else:
-            combo_list = []
-            for combo in self.LoadCombos.values():
-                if any(tag in combo.combo_tags for tag in combo_tags):
-                    combo_list.append(combo)
+        # Identify which load combinations have the tags the user has given
+        combo_list = Analysis._identify_combos(self, combo_tags)
 
         # Step through each load combination
         for combo in combo_list:
@@ -2338,53 +2238,10 @@ class FEModel3D():
                         raise Exception(
                             'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
 
-                # Form the global displacement vector, D, from D1 and D2
-                D = zeros((len(self.Nodes) * 6, 1))
 
-                for node in self.Nodes.values():
+                # Store the calculated displacements to the model and the nodes in the model
+                Analysis._store_displacements(self, D1, D2, D1_indices, D2_indices, combo)
 
-                    if D2_indices.count(node.ID * 6 + 0) == 1:
-                        D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
-
-                    if D2_indices.count(node.ID * 6 + 1) == 1:
-                        D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
-
-                    if D2_indices.count(node.ID * 6 + 2) == 1:
-                        D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
-
-                    if D2_indices.count(node.ID * 6 + 3) == 1:
-                        D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
-
-                    if D2_indices.count(node.ID * 6 + 4) == 1:
-                        D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
-
-                    if D2_indices.count(node.ID * 6 + 5) == 1:
-                        D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
-
-                        # Save the global displacement vector
-                self._D[combo.name] = D
-
-                # Store the calculated global nodal displacements into each node
-                for node in self.Nodes.values():
-
-                    node.DX[combo.name] = D[node.ID*6 + 0, 0]
-                    node.DY[combo.name] = D[node.ID*6 + 1, 0]
-                    node.DZ[combo.name] = D[node.ID*6 + 2, 0]
-                    node.RX[combo.name] = D[node.ID*6 + 3, 0]
-                    node.RY[combo.name] = D[node.ID*6 + 4, 0]
-                    node.RZ[combo.name] = D[node.ID*6 + 5, 0]
                 
                 # Check for tension/compression-only convergence
                 convergence = Analysis._check_TC_convergence(self, combo.name, log=log)
@@ -2446,10 +2303,7 @@ class FEModel3D():
 
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = self._aux_list()
-
-        # Convert D2 from a list to a vector
-        D2 = atleast_2d(D2).T
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
         # Note that for linear analysis the stiffness matrix can be obtained for any load combination, as it's the same for all of them
@@ -2461,14 +2315,8 @@ class FEModel3D():
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices,
                                                  D2_indices)
 
-        # Identify which load combinations to evaluate
-        if combo_tags is None:
-            combo_list = self.LoadCombos.values()
-        else:
-            combo_list = []
-            for combo in self.LoadCombos.values():
-                if any(tag in combo.combo_tags for tag in combo_tags):
-                    combo_list.append(combo)
+        # Identify which load combinations have the tags the user has given
+        combo_list = Analysis._identify_combos(self, combo_tags)
 
         # Step through each load combination
         for combo in combo_list:
@@ -2505,52 +2353,10 @@ class FEModel3D():
                     raise Exception(
                         'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
 
-            # Form the global displacement vector, D, from D1 and D2
-            D = zeros((len(self.Nodes) * 6, 1))
 
-            for node in self.Nodes.values():
+            # Store the calculated displacements to the model and the nodes in the model
+            Analysis._store_displacements(self, D1, D2, D1_indices, D2_indices, combo)
 
-                if D2_indices.count(node.ID * 6 + 0) == 1:
-                    D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                else:
-                    D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
-
-                if D2_indices.count(node.ID * 6 + 1) == 1:
-                    D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
-                else:
-                    D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
-
-                if D2_indices.count(node.ID * 6 + 2) == 1:
-                    D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
-                else:
-                    D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
-
-                if D2_indices.count(node.ID * 6 + 3) == 1:
-                    D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
-                else:
-                    D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
-
-                if D2_indices.count(node.ID * 6 + 4) == 1:
-                    D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
-                else:
-                    D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
-
-                if D2_indices.count(node.ID * 6 + 5) == 1:
-                    D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
-                else:
-                    D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
-
-                    # Save the global displacement vector
-            self._D[combo.name] = D
-
-            # Store the calculated global nodal displacements into each node
-            for node in self.Nodes.values():
-                node.DX[combo.name] = D[node.ID * 6 + 0, 0]
-                node.DY[combo.name] = D[node.ID * 6 + 1, 0]
-                node.DZ[combo.name] = D[node.ID * 6 + 2, 0]
-                node.RX[combo.name] = D[node.ID * 6 + 3, 0]
-                node.RY[combo.name] = D[node.ID * 6 + 4, 0]
-                node.RZ[combo.name] = D[node.ID * 6 + 5, 0]
 
         # Calculate reactions
         Analysis._calc_reactions(self, log, combo_tags)
@@ -2601,19 +2407,10 @@ class FEModel3D():
 
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = self._aux_list()
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
 
-        # Convert D2 from a list to a matrix
-        D2 = array(D2, ndmin=2).T
-
-        # Identify which load combinations to evaluate
-        if combo_tags is None:
-            combo_list = self.LoadCombos.values()
-        else:
-            combo_list = []
-            for combo in self.LoadCombos.values():
-                if any(tag in combo.combo_tags for tag in combo_tags):
-                    combo_list.append(combo)
+        # Identify which load combinations have the tags the user has given
+        combo_list = Analysis._identify_combos(self, combo_tags)
 
         # Step through each load combination
 
@@ -2633,16 +2430,19 @@ class FEModel3D():
             divergence_TC = False  # Tracks tension/compression-only divergence
             divergence_PD = False  # Tracks P-Delta divergence
 
-            # Iterate until convergence or divergence occurs
-            while ((convergence_TC == False or convergence_PD == False)
-                   and (divergence_TC == False and divergence_PD == False)):
+
+            # Iterate until either convergence or divergence occurs
+            while ((convergence_TC == False or convergence_PD == False) 
+                  and (divergence_TC == False and divergence_PD == False)):
+
+
 
                 # Inform the user which iteration we're on
                 if log:
                     print('- Beginning tension/compression-only iteration #' + str(iter_count_TC))
                     print('- Beginning P-Delta iteration #' + str(iter_count_PD))
 
-                # On the first iteration, get all the partitioned global matrices
+                # On the first iteration we will ignore the geometric stiffness since it is a function of axial loads that we have not yet calculated
                 if iter_count_PD == 1:
 
                     if sparse == True:
@@ -2660,8 +2460,7 @@ class FEModel3D():
                     FER1, FER2 = self._partition(self.FER(combo.name), D1_indices, D2_indices)  # Fixed end reactions
                     P1, P2 = self._partition(self.P(combo.name), D1_indices, D2_indices)  # Nodal forces
 
-                # On subsequent iterations, recalculate the stiffness matrix to account for P-Delta
-                # effects
+                # On subsequent iterations we will add the geometric stiffness to account for P-Delta effects
                 else:
 
                     # Calculate the partitioned global stiffness matrices
@@ -2713,54 +2512,12 @@ class FEModel3D():
 
                     except:
                         # Return out of the method if 'K' is singular and provide an error message
-                        raise ValueError(
-                            'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
 
-                D = zeros((len(self.Nodes) * 6, 1))
+                        raise ValueError('The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
 
-                for node in self.Nodes.values():
-
-                    if node.ID * 6 + 0 in D2_indices:
-                        D[(node.ID * 6 + 0, 0)] = D2[D2_indices.index(node.ID * 6 + 0), 0]
-                    else:
-                        D[(node.ID * 6 + 0, 0)] = D1[D1_indices.index(node.ID * 6 + 0), 0]
-
-                    if node.ID * 6 + 1 in D2_indices:
-                        D[(node.ID * 6 + 1, 0)] = D2[D2_indices.index(node.ID * 6 + 1), 0]
-                    else:
-                        D[(node.ID * 6 + 1, 0)] = D1[D1_indices.index(node.ID * 6 + 1), 0]
-
-                    if node.ID * 6 + 2 in D2_indices:
-                        D[(node.ID * 6 + 2, 0)] = D2[D2_indices.index(node.ID * 6 + 2), 0]
-                    else:
-                        D[(node.ID * 6 + 2, 0)] = D1[D1_indices.index(node.ID * 6 + 2), 0]
-
-                    if node.ID * 6 + 3 in D2_indices:
-                        D[(node.ID * 6 + 3, 0)] = D2[D2_indices.index(node.ID * 6 + 3), 0]
-                    else:
-                        D[(node.ID * 6 + 3, 0)] = D1[D1_indices.index(node.ID * 6 + 3), 0]
-
-                    if node.ID * 6 + 4 in D2_indices:
-                        D[(node.ID * 6 + 4, 0)] = D2[D2_indices.index(node.ID * 6 + 4), 0]
-                    else:
-                        D[(node.ID * 6 + 4, 0)] = D1[D1_indices.index(node.ID * 6 + 4), 0]
-
-                    if node.ID * 6 + 5 in D2_indices:
-                        D[(node.ID * 6 + 5, 0)] = D2[D2_indices.index(node.ID * 6 + 5), 0]
-                    else:
-                        D[(node.ID * 6 + 5, 0)] = D1[D1_indices.index(node.ID * 6 + 5), 0]
-
-                # Save the global displacement vector
-                self._D[combo.name] = D
-
-                # Store the calculated global nodal displacements into each node
-                for node in self.Nodes.values():
-                    node.DX[combo.name] = D[node.ID * 6 + 0, 0]
-                    node.DY[combo.name] = D[node.ID * 6 + 1, 0]
-                    node.DZ[combo.name] = D[node.ID * 6 + 2, 0]
-                    node.RX[combo.name] = D[node.ID * 6 + 3, 0]
-                    node.RY[combo.name] = D[node.ID * 6 + 4, 0]
-                    node.RZ[combo.name] = D[node.ID * 6 + 5, 0]
+                # Store the calculated displacements to the model and the nodes in the model
+                Analysis._store_displacements(self, D1, D2, D1_indices, D2_indices, combo)
+                
 
                 # Assume the model has converged (to be checked below)
 

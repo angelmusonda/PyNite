@@ -72,7 +72,7 @@ class Member3D():
         return self.i_node.distance(self.j_node)
 
 #%%
-    def _aux_list(self):
+    def _partition_D(self):
         """
         Builds lists of unreleased and released degree of freedom indices for the member.
 
@@ -393,7 +393,7 @@ class Member3D():
         """
         
         # Get the lists of unreleased and released degree of freedom indices
-        R1_indices, R2_indices = self._aux_list()
+        R1_indices, R2_indices = self._partition_D()
 
         # Partition the local stiffness matrix and local fixed end reaction vector
         k11, k12, k21, k22 = self._partition(self._k_unc())
@@ -500,7 +500,7 @@ class Member3D():
         """
 
         # Create auxiliary lists of released/unreleased DOFs
-        R1_indices, R2_indices = self._aux_list()
+        R1_indices, R2_indices = self._partition_D()
 
         # Partition the matrix by slicing
         if unp_matrix.shape[1] == 1:
