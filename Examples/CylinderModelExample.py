@@ -1,5 +1,5 @@
 from PyNite import FEModel3D
-from numpy import  pi
+from numpy import pi
 
 # Create a FE Model
 frame = FEModel3D()
@@ -27,7 +27,7 @@ frame.add_node('N12', 0, 4, 6.5)
 Iy = 0.4*0.4**3 / 12
 Iz = 0.4*0.4**3 / 12
 A = 0.4*0.4
-J = Iy + Iz
+J = (0.4*0.4**3)*(1/3 - 0.21*0.4/0.4 * (1-0.4**4 / (12*0.4**4)))
 
 # Material
 E = 30e9
@@ -54,7 +54,7 @@ frame.add_member('Beam8', 'N12', 'N9', 'Concrete', Iy, Iz, J, A)
 Iy = 0.3*0.3**3 / 12
 Iz = Iy
 A = 0.3*0.3
-J = 0.3*0.3*(1/3 - 0.21*0.3/0.3 * (1-0.3**4 / (12*0.3**4)))
+J = (0.3*0.3**3)*(1/3 - 0.21*0.3/0.3 * (1-0.3**4 / (12*0.3**4)))
 
 # Add columns
 frame.add_member('Column1', 'N1', 'N5', 'Concrete', Iy, Iz, J, A)
@@ -84,10 +84,10 @@ frame.def_support('N4', True, True, True, True, True, True)
 
 #frame.add_member_dist_load('Beam1','FZ',-30e3,-30e3)
 
-frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='P')
-frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='C')
-frame.add_member_pt_load('Beam1','FZ',-50e3,2,'case2')
-frame.add_member_pt_load('Beam2','FZ',-50,2,'case2')
+#frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='P')
+#frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='C')
+#frame.add_member_pt_load('Beam1','FZ',-50e3,2,'case2')
+#frame.add_member_pt_load('Beam2','FZ',-50,2,'case2')
 
 frame.add_node_load('N11','FX',-500E3,'N')
 #frame.set_as_mass_case("Pressure")
@@ -114,12 +114,12 @@ frame.add_member_dist_load('Beam8','FZ',-30e3,-1e3)
 
 #Add load combination
 frame.add_load_combo('COMB1',{'N': 1})
-frame.add_load_combo('static_combo',{'P':1})
+#frame.add_load_combo('static_combo',{'P':1})
 
 # Analyse Model
 #print(frame.Members["Beam1"].m())
-frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='consistent')
-#print(frame.analyze_harmonic('COMB1',2,10,20,10,damping_ratios_in_every_mode=0.5,log=False, sparse=True,tol = 0.01))
+#frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='consistent')
+print(frame.analyze_harmonic('COMB1', f1=2,f2=10,f_div=10,constant_modal_damping=0.02,sparse=False,log=False, num_modes=100))
 #frame.analyze_linear()
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
 
@@ -128,20 +128,23 @@ frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of
 #frame.set_active_mode(1)
 #print(frame.Natural_Frequencies)
 
-"""
+#print(frame.Members.keys())
+
+
 import numpy as np
-f_list = [2,2.8,3.6,4.21,4.4,5.2,5.7,6,6.8,7.6,8.4,9.2,10]
+f_list = frame.LoadFrequencies
 for f in f_list:
     frame.set_load_frequency_to_query_results_for(f,'COMB1')
-    print(round(f,2)," Hz :",round(1000*frame.Nodes['N11'].DX['COMB1'],2))
-"""
+    print(f," Hz :",round(1000*frame.Nodes['N11'].DX['COMB1'],2))
 print(frame.Natural_Frequencies)
+
+#print(frame.Natural_Frequencies)
 from PyNite.Visualization import render_model
 
 render_model(model=frame,
              deformed_scale=50,
-             render_loads=False,
-             combo_name='Modal Combo',
+             render_loads=True,
+             combo_name='COMB1',
              annotation_size=0.1,
              deformed_shape=True)
 

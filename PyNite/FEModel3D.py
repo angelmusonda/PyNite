@@ -2823,8 +2823,7 @@ class FEModel3D():
         if f2 < f1:
             raise ValueError("f2 must be greater than f1")
 
-        if f_div == 1:
-            raise ValueError("f_div must be atleast 2")
+
 
         # Perform modal analysis
         self.analyze_modal(log, check_stability, num_modes, tol, sparse, type_of_mass_matrix)
@@ -2964,8 +2963,22 @@ class FEModel3D():
             for k in range(len(w)):
                 C_n[k] = 2 * w[k] * constant_modal_damping
 
-        # Calculate the forcing frequencies
-        freq = linspace(f1,f2, f_div)
+        # Calculate the list of forcing frequencies
+        # Distribute the load frequencies around the natural frequencies
+        natural_frequencies = self.Natural_Frequencies
+        freq = list(linspace(f1, f2, f_div))
+        for natural_freq in natural_frequencies:
+            if(natural_freq>=f1 and natural_freq<=f2):
+                freq.extend(
+                    [0.9 * natural_freq,
+                     0.95 * natural_freq,
+                     natural_freq,
+                     1.05 * natural_freq,
+                     1.1 * natural_freq])
+
+        freq = list(set(freq))
+        freq.sort()
+
         omega_list = 2 * pi * array(freq)  # Angular frequency of load
 
         self.LoadFrequencies = array(freq)  # Save it
