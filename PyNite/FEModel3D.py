@@ -60,16 +60,20 @@ class FEModel3D():
         self.LoadCombos.pop(str)
         self._D = {str: []}  # A dictionary of the model's nodal displacements by load combination
         self._D.pop(str)
-        self._SHAPE = {int: []}  # A dictionary of the model's mode shape by modes
-        self._SHAPE.pop(int)
+        self._MODE_SHAPES = None  # A matrix of the model's mode shapes
+        self._eigen_vectors = None# Eigen vectors of the model
         self.Active_Mode = 1  # A variable to keep track of the active mode
-        self.Natural_Frequencies = []  # A list to store the calculated natural frequencies
-        self._Max_D_Harmonic = []  # A dictionary of the models maximum displacements per load frequency
+        self._NATURAL_FREQUENCIES = []  # A list to store the calculated natural frequencies
+        self._DISPLACEMENT_AMPLITUDE = []  # A dictionary of the models maximum displacements per load frequency
         self.MassCases = {str: []}  # A dictionary of load cases to be considered as mass cases
         self.MassCases.pop(str)
 
         self.LoadFrequencies = []  # A list to store the calculated load frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
+        self.DynamicSolution = {
+            "Harmonic": False,
+            "Modal": False
+        }
 
     @property
     def LoadCases(self):
@@ -144,6 +148,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the node name
         return name
@@ -188,6 +194,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the node name
         return name
@@ -228,6 +236,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_spring(self, name, i_node, j_node, ks, tension_only=False, comp_only=False):
         """Adds a new spring to the model.
@@ -272,6 +282,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the spring name
         return name
@@ -331,6 +343,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the member name
         return name
@@ -388,6 +402,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the plate name
         return name
@@ -447,6 +463,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the quad name
         return name
@@ -517,6 +535,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the mesh's name
         return name
@@ -581,6 +601,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the mesh's name
         return name
@@ -644,6 +666,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the mesh's name
         return name
@@ -721,6 +745,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         # Return the mesh's name
         return name
@@ -827,6 +853,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def delete_node(self, node_name):
         """Removes a node from the model. All nodal loads associated with the node and elements attached to the node will also be removed.
@@ -849,6 +877,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def delete_auxnode(self, auxnode_name):
         """Removes an auxiliary node from the model.
@@ -867,6 +897,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def delete_spring(self, spring_name):
         """Removes a spring from the model.
@@ -880,6 +912,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def delete_member(self, member_name):
         """Removes a member from the model. All member loads associated with the member will also
@@ -895,6 +929,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def def_support(self, node_name, support_DX=False, support_DY=False, support_DZ=False, support_RX=False,
                     support_RY=False, support_RZ=False):
@@ -936,6 +972,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def def_support_spring(self, node_name, dof, stiffness, direction=None):
         """Defines a spring support at a node.
@@ -974,6 +1012,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def def_node_disp(self, node_name, direction, magnitude):
         """Defines a nodal displacement at a node.
@@ -1008,6 +1048,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def def_releases(self, Member, Dxi=False, Dyi=False, Dzi=False, Rxi=False, Ryi=False, Rzi=False, Dxj=False,
                      Dyj=False, Dzj=False, Rxj=False, Ryj=False, Rzj=False):
@@ -1046,6 +1088,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_load_combo(self, name, factors, combo_tags=None):
         """Adds a load combination to the model.
@@ -1068,6 +1112,8 @@ class FEModel3D():
 
         # Flag the model as solved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def set_as_mass_case(self, name, gravity=9.81, factor=1):
         """
@@ -1114,6 +1160,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_member_pt_load(self, Member, Direction, P, x, case='Case 1'):
         """Adds a member point load to the model.
@@ -1145,6 +1193,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_member_dist_load(self, Member, Direction, w1, w2, x1=None, x2=None, case='Case 1'):
         """Adds a member distributed load to the model.
@@ -1192,6 +1242,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_plate_surface_pressure(self, plate_name, pressure, case='Case 1'):
         """Adds a surface pressure to the rectangular plate element.
@@ -1214,6 +1266,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def add_quad_surface_pressure(self, quad_name, pressure, case='Case 1'):
         """Adds a surface pressure to the quadrilateral element.
@@ -1235,6 +1289,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
     def delete_loads(self):
         """Deletes all loads from the model along with any results based on the loads.
@@ -1276,6 +1332,8 @@ class FEModel3D():
 
         # Flag the model as unsolved
         self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
 
         
     def K(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
@@ -2702,48 +2760,56 @@ class FEModel3D():
         eigVec = eigVec[:, sort_indices]
 
         # Calculate and store the natural frequencies
-        self.Natural_Frequencies = array([sqrt(eig_val) / (2 * pi) for eig_val in eigVal])
+        self._NATURAL_FREQUENCIES = array([sqrt(eig_val) / (2 * pi) for eig_val in eigVal])
 
         # Store the calculated modal displacements
-        self._SHAPE = real(eigVec)
+        self._eigen_vectors = real(eigVec)
 
-        # Form the global displacement vector, D, from D1 and D2
-        D1 = eigVec[:, self.Active_Mode - 1].reshape((-1, 1))
+        # Form the mode shapes
         D = zeros((len(self.Nodes) * 6, 1))
+        MODE_SHAPE_TEMP = zeros((len(self.Nodes)*6, len(eigVal)))
 
-        #Analysis._store_displacements(self, D1, D2, D1_indices, D2_indices, 'Modal Combo')
+        for i in range(len(eigVal)):
 
-        for node in self.Nodes.values():
+            D1 = eigVec[:, i]
+            D1 = D1.reshape(len(D1),1)
 
-            if D2_indices.count(node.ID * 6 + 0) == 1:
-                D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-            else:
-                D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
+            for node in self.Nodes.values():
 
-            if D2_indices.count(node.ID * 6 + 1) == 1:
-                D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
-            else:
-                D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
+                if D2_indices.count(node.ID * 6 + 0) == 1:
+                    D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+                else:
+                    D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
 
-            if D2_indices.count(node.ID * 6 + 2) == 1:
-                D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
-            else:
-                D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
+                if D2_indices.count(node.ID * 6 + 1) == 1:
+                    D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+                else:
+                    D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
 
-            if D2_indices.count(node.ID * 6 + 3) == 1:
-                D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
-            else:
-                D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
+                if D2_indices.count(node.ID * 6 + 2) == 1:
+                    D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+                else:
+                    D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
 
-            if D2_indices.count(node.ID * 6 + 4) == 1:
-                D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
-            else:
-                D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+                if D2_indices.count(node.ID * 6 + 3) == 1:
+                    D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+                else:
+                    D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
 
-            if D2_indices.count(node.ID * 6 + 5) == 1:
-                D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
-            else:
-                D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+                if D2_indices.count(node.ID * 6 + 4) == 1:
+                    D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+                else:
+                    D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+
+                if D2_indices.count(node.ID * 6 + 5) == 1:
+                    D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+                else:
+                    D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+
+                MODE_SHAPE_TEMP[:, i] = D[:,0]
+
+        # Store the calculated mode shapes
+        self._MODE_SHAPES = MODE_SHAPE_TEMP
 
         # Store the calculated global nodal modal displacements into each node
         for node in self.Nodes.values():
@@ -2754,14 +2820,13 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, 0]
             node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
 
-            # return eigVec[:,0].reshape((-1,1))
         if log:
             print('')
             print('- Analysis complete')
             print('')
 
         # Flag the model as solved
-        self.solution = 'Modal'
+        self.DynamicSolution['Modal'] = True
 
 
     def analyze_harmonic(self, harmonic_combo, f1, f2, f_div, num_modes, constant_modal_damping = 0.02,
@@ -2824,7 +2889,6 @@ class FEModel3D():
             raise ValueError("f2 must be greater than f1")
 
 
-
         # Perform modal analysis
         self.analyze_modal(log, check_stability, num_modes, tol, sparse, type_of_mass_matrix)
 
@@ -2848,7 +2912,7 @@ class FEModel3D():
             del load_combos_temp
 
         # At this point, we have the mode shapes, natural frequencies, and static displacement results stored in
-        # self._SHAPE, self.Natural_Frequencies, and self._D respectively
+        # self._MODE_SHAPES, self._NATURAL_FREQUENCIES, and self._D respectively
 
         # We can now begin the harmonic analysis
         if log:
@@ -2887,7 +2951,7 @@ class FEModel3D():
             M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
 
         # Get the mass normalised mode shape matrix
-        Z = self._mass_normalised_mode_shapes(M11, self._SHAPE)
+        Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
 
         # Get the partitioned global fixed end reaction vector
         FER1, FER2 = self._partition(self.FER(harmonic_combo), D1_indices, D2_indices)
@@ -2902,7 +2966,7 @@ class FEModel3D():
         Q = zeros((FV_n.shape[0], 1))
 
         # Calculate the damping coefficients
-        w = 2 * pi * self.Natural_Frequencies  # Angular natural frequencies
+        w = 2 * pi * self._NATURAL_FREQUENCIES  # Angular natural frequencies
 
         # Calculate the damping matrix
         # Initialise it
@@ -2925,7 +2989,7 @@ class FEModel3D():
                 for k in range(len(w)):
                    C_n[k] = 2 * damping_ratios_in_every_mode * w[k]
         elif rayleigh_alpha_1 != None or rayleigh_alpha_2 != None:
-            # Atleast one rayleigh damping coefficient has been specified
+            # At-least one rayleigh damping coefficient has been specified
             if rayleigh_alpha_1 == None:
                 rayleigh_alpha_1 = 0
             if rayleigh_alpha_2 == None:
@@ -2936,7 +3000,7 @@ class FEModel3D():
         elif first_mode_damping_ratio != None or highest_mode_damping_ratio != None:
             # Rayleigh damping is requested and at-least one damping ratio is given
             # If only one is given, the same will be assumed to the damping ratios
-            # in the lowest and heighest modes
+            # in the lowest and highest modes
             if first_mode_damping_ratio == None:
                 first_mode_damping_ratio = highest_mode_damping_ratio
             if highest_mode_damping_ratio == None:
@@ -2965,7 +3029,7 @@ class FEModel3D():
 
         # Calculate the list of forcing frequencies
         # Distribute the load frequencies around the natural frequencies
-        natural_frequencies = self.Natural_Frequencies
+        natural_frequencies = self._NATURAL_FREQUENCIES
         freq = list(linspace(f1, f2, f_div))
         for natural_freq in natural_frequencies:
             if(natural_freq>=f1 and natural_freq<=f2):
@@ -3038,7 +3102,7 @@ class FEModel3D():
                 else:
                     D_temp[:, n] = D[:, 0] + self._D[static_combo][:, 0]
                 n += 1
-            self._Max_D_Harmonic = D_temp
+            self._DISPLACEMENT_AMPLITUDE = D_temp
 
         except:
             raise Exception("'The stiffness matrix is singular, which implies rigid body motion."
@@ -3054,7 +3118,7 @@ class FEModel3D():
             Analysis._check_statics(self)
 
         # Flag the model as solved
-        self.solution = 'Harmonic'
+        self.DynamicSolution['Harmonic'] = True
 
         # Select the frequency to show results for
         self.set_load_frequency_to_query_results_for(f1,harmonic_combo)
@@ -3082,185 +3146,23 @@ class FEModel3D():
             modes[:, col] = modes[:, col] / sqrt(Mr[col, col])
         return modes
 
-    def set_active_mode(self, active_mode):
+    def DISPLACEMENT_AMPLITUDE(self):
         """
-        Sets the mode for which to view results
-
-        Parameters
-        ---------
-        active_mode : int
-            The mode to set active
-
-        Exceptions
-        ----------
-        Occurs when the function is called and the modal analysis results are not available
+        Returns the global nodal displacement amplitude of the model solved using harmonic analysis
         """
+        return self._DISPLACEMENT_AMPLITUDE
 
-        # Check if modal analysis results are available
-        if self.solution == 'Modal' or self.solution == 'Harmonic':
-            # Check that the requested mode is among the calculated modes
-            calculated_modes = self._SHAPE.shape[0]
-            if active_mode > calculated_modes:
-                # If a higher mode is selected, set the maximum calculated mode as active
-                active_mode = calculated_modes
-            elif active_mode < 1:
-                # Sets the active mode to 1 if a negative number is entered
-                active_mode = 1
-
-            # Set the active mode finally
-            self.Active_Mode = active_mode
-
-            # Set the combination name
-            combo_name = 'Modal Combo'
-
-            # Form the global displacement vector, D, from D1 and D2
-            # Get the free and constrained indices
-            D1_indices, D2_indices, D2 = Analysis._partition_D(self)
-
-            # Set zero modal displacements to the constrained DOFs
-            D2 = zeros((len(D2), 1))
-
-            # From the calculated modal displacements, select the required
-            D1 = self._SHAPE[:, active_mode - 1].reshape((-1, 1))
-
-            # Initialise the global modal displacements
-            D = zeros((len(self.Nodes) * 6, 1))
-
-            # The global modal displacement vector can now be formed
-            for node in self.Nodes.values():
-
-                if D2_indices.count(node.ID * 6 + 0) == 1:
-                    D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                else:
-                    D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
-
-                if D2_indices.count(node.ID * 6 + 1) == 1:
-                    D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
-                else:
-                    D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
-
-                if D2_indices.count(node.ID * 6 + 2) == 1:
-                    D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
-                else:
-                    D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
-
-                if D2_indices.count(node.ID * 6 + 3) == 1:
-                    D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
-                else:
-                    D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
-
-                if D2_indices.count(node.ID * 6 + 4) == 1:
-                    D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
-                else:
-                    D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
-
-                if D2_indices.count(node.ID * 6 + 5) == 1:
-                    D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
-                else:
-                    D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
-
-            # Store the calculated global nodal modal displacements into each node
-            for node in self.Nodes.values():
-                node.DX[combo_name] = D[node.ID * 6 + 0, 0]
-                node.DY[combo_name] = D[node.ID * 6 + 1, 0]
-                node.DZ[combo_name] = D[node.ID * 6 + 2, 0]
-                node.RX[combo_name] = D[node.ID * 6 + 3, 0]
-                node.RY[combo_name] = D[node.ID * 6 + 4, 0]
-                node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
-
-        else:
-            raise ResultsNotFoundError
-
-    def natural_frequency(self, mode=None):
+    def NATURAL_FREQUENCIES(self):
         """
-        Returns the natural frequency of a given mode
-
-        :param mode: The mode of vibration for which the natural frequency is required
-        :type mode: int
+        Returns the natural frequencies of the model
         """
-        # Check the results availability
-        if self.solution == "Modal":
-            if mode is None:
-                mode = self.Active_Mode
-            elif mode > len(self.Natural_Frequencies):
-                mode = len(self.Natural_Frequencies)
-            elif mode < 1:
-                mode = 1
-        else:
-            raise Exception('Modal analysis results are not available')
-        return self.Natural_Frequencies[mode - 1]
+        return self._NATURAL_FREQUENCIES
 
-    def set_load_frequency_to_query_results_for(self, frequency, harmonic_combo, log = False):
+    def MODE_SHAPES(self):
         """
-        Sets the frequency to query results for. Only works when harmonic results are available
-
-        Parameters
-        ----------
-        :param frequency: The frequency for which results are desired
-        :type frequency: int
-
-        Raises
-        ------
-        : ResultsNotFoundError
-             Occurs when the function is called and the harmonic analysis results are not available
-
-        : InputOutOfRangeError
-             Occurs when the provided frequency is out of range of frequencies analysed for
-
+        Returns the Mode shapes of the structure
         """
-
-        # Check if harmonic results are available and raise error if not
-
-        if self.solution != 'Harmonic':
-            raise ResultsNotFoundError
-
-        # Get the frequency range analysed for
-        f_min = min(self.LoadFrequencies)
-        f_max = max(self.LoadFrequencies)
-
-        # Check if the requested for frequency is within the range analysed for
-        if frequency < f_min or frequency > f_max:
-            raise InputOutOfRangeError
-
-        dof = self._Max_D_Harmonic.shape[0]
-
-        # Number of columns in y_data
-        # num_columns = y_data.shape[1]
-
-        # Perform cubic spline interpolation for each dof
-        D = zeros((dof, 1))
-        for i in range(dof):
-            # Linear interpolation
-            D[i, 0] = interp(frequency, self.LoadFrequencies, self._Max_D_Harmonic[i, :])
-
-            # The Cubic spline interpolation below can also be used
-            # spline_function = CubicSpline(self.LoadFrequencies, self._Max_D_Harmonic[i, :])
-            # D[i,0] = spline_function(frequency)
-
-        # Store the calculated global nodal modal displacements into each node
-        for node in self.Nodes.values():
-            node.DX[harmonic_combo] = D[node.ID * 6 + 0, 0]
-            node.DY[harmonic_combo] = D[node.ID * 6 + 1, 0]
-            node.DZ[harmonic_combo] = D[node.ID * 6 + 2, 0]
-            node.RX[harmonic_combo] = D[node.ID * 6 + 3, 0]
-            node.RY[harmonic_combo] = D[node.ID * 6 + 4, 0]
-            node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
-
-        # Re-calculate reactions
-        # We do not want to calculate reactions for all the load combinations
-        # Hence we will keep the load combinations in a temporary object
-        load_combos_temp = copy.deepcopy(self.LoadCombos)
-
-        # Then remove all other load combos except the required load combo
-        self.LoadCombos.clear()
-        self.LoadCombos = {harmonic_combo: load_combos_temp[harmonic_combo]}
-
-        # Calculate the reactions
-        Analysis._calc_reactions(self,log)
-
-        # Restore the load combos
-        self.LoadCombos = copy.deepcopy(load_combos_temp)
-
+        return self._MODE_SHAPES
 
     def unique_name(self, dictionary, prefix):
         """Returns the next available unique name for a dictionary of objects.

@@ -130,23 +130,23 @@ print(frame.analyze_harmonic('COMB1', f1=2,f2=10,f_div=10,constant_modal_damping
 
 #print(frame.Members.keys())
 
-
+"""
 import numpy as np
 f_list = frame.LoadFrequencies
 for f in f_list:
     frame.set_load_frequency_to_query_results_for(f,'COMB1')
     print(f," Hz :",round(1000*frame.Nodes['N11'].DX['COMB1'],2))
 print(frame.Natural_Frequencies)
+"""
+import pickle
+with open('model.pickle', 'wb') as file:
+    # Serialize and save the object to the file
+    pickle.dump(frame, file)
 
 #print(frame.Natural_Frequencies)
 from PyNite.Visualization import render_model
 
-render_model(model=frame,
-             deformed_scale=50,
-             render_loads=True,
-             combo_name='COMB1',
-             annotation_size=0.1,
-             deformed_shape=True)
+
 
 
 
