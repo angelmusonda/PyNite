@@ -49,17 +49,17 @@ model.add_load_combo('COMB1',{'Case 1':1})
 
 model.define_load_profile('Case 1', [0,0.01],[1,1])
 
-damping = dict(constant_modal_damping = 0)
-model.analyze_modal(num_modes=20,sparse=True)
-model.analyze_linear_time_history_newmark_modal(load_combo='COMB1',
-                                                AgX=None,
-                                                AgY=None,
-                                                AgZ=None,
-                                                step_size=0.00001,
-                                                response_duration=1,
-                                                newmark_gamma=0.5,
-                                                newmark_beta=0.25,
-                                                damping_options=damping)
+
+#model.analyze_modal(num_modes=20,sparse=True)
+model.analyze_linear_time_history_HHT_alpha(  analysis_method='direct',
+                                            combo_name='COMB1',
+                                            AgX=None,
+                                            AgY=None,
+                                            AgZ=None,
+                                            step_size=0.00001,
+                                            response_duration=0.01,
+                                            HHT_alpha=-1/3,
+                                            log=True)
 #print(model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
@@ -69,10 +69,6 @@ x = model.TIME_THA()
 dof = model.Nodes['T'].ID * 6 + 3
 
 y = model.DISPLACEMENT_THA()[dof,:]
-print(x)
-print(y)
-print(model.DISPLACEMENT_THA())
-print(model.Nodes['T'].DX['COMB1'])
 # Create a line plot
 plt.plot(x, y)
 
