@@ -1,7 +1,8 @@
 import pickle
-from PyNite import FEModel3D
+from PyNite import FEModel3D, Analysis
 from numpy import pi, zeros, interp
 from PyNite.PyNiteExceptions import InputOutOfRangeError, ResultsNotFoundError
+import copy
 
 class ResultsModelBuilder():
     """
@@ -32,6 +33,32 @@ class ResultsModelBuilder():
             node.RY[combo_name] = response[node.ID * 6 + 4, 0]
             node.RZ[combo_name] = response[node.ID * 6 + 5, 0]
 
+    def _calculate_reactions(self, model: FEModel3D, combo_name,log=True):
+        """
+        Calculates the reactions of the model.
+
+        Args:
+            model (FEModel3D): The solved finite element model.
+            combo_name (str): The name of the load combination.
+
+        Returns:
+            None
+        """
+        # Re-calculate reactions
+        # We do not want to calculate reactions for all the load combinations
+        # Hence we will keep the load combinations in a temporary object
+        load_combos_temp = copy.deepcopy(model.LoadCombos)
+
+        # Then remove all other load combos except the required load combo
+        model.LoadCombos.clear()
+        model.LoadCombos = {combo_name: load_combos_temp[combo_name]}
+
+        # Calculate the reactions
+        Analysis._calc_reactions(model,log)
+
+        # Restore the load combos
+        model.LoadCombos = copy.deepcopy(load_combos_temp)
+
 
 class HarmonicResultsModelBuilder(ResultsModelBuilder):
     """
@@ -56,7 +83,7 @@ class HarmonicResultsModelBuilder(ResultsModelBuilder):
         self._total_response = None
 
 
-    def get_solved_model_at_freq(self, freq, combo_name, response_type = "D"):
+    def get_solved_model_at_freq(self, freq, combo_name, response_type = "D", log=False):
         """
         Get the model's response at a specific frequency. This model can be visualised and can be used to extract other
         response quantities, graphs, for every member at the specified frequency of load
@@ -110,6 +137,8 @@ class HarmonicResultsModelBuilder(ResultsModelBuilder):
         # Now that the response is interpolated, put it into respective nodes
         self._save_response_into_node(model=model,response=response_at_freq,combo_name=combo_name)
 
+        # Calculate the reactions
+        self._calculate_reactions(model = model, combo_name=combo_name, log=log)
         # Return the model with requested for response quantity and load frequency
         return model
 
@@ -212,17 +241,22 @@ class ModalResultsModelBuilder(ResultsModelBuilder):
 
 
 # TESTING
-model_builder = ModalResultsModelBuilder("model.pickle")
-solved_model =model_builder.get_solved_model_for_mode(mode=1)
+model_builder = HarmonicResultsModelBuilder("model.pickle")
+solved_model =model_builder.get_solved_model_at_freq(freq=3,combo_name='COMB1',log=True )
+load_freq = solved_model.LoadFrequencies
 
-from PyNite.Visualization import render_model
-render_model(solved_model,
-             deformed_shape=True,
-             combo_name='Modal Combo',
+for freq in load_freq:
+    solved_model = model_builder.get_solved_model_at_freq(freq, combo_name='COMB1',log=False)
+    print(round(freq,2) , " : ", round(1000 * solved_model.Nodes['N11'].DX['COMB1']))
+
+
+"""from PyNite.Visualization import render_model
+render_model(model = solved_model,
+             render_loads=False,
+             annotation_size=0.05,
+             deformed_shape=False,
              deformed_scale=30,
-             annotation_size=0.1,
-             render_loads=False)
-
+             combo_name='COMB1')"""
 
 
 

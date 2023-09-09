@@ -2,7 +2,7 @@
 from os import rename
 import warnings
 import copy
-from math import isclose
+from math import isclose, ceil
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace
@@ -22,8 +22,10 @@ from PyNite.LoadCombo import LoadCombo
 from PyNite.MassCase import MassCase
 from PyNite.Mesh import Mesh, RectangleMesh, AnnulusMesh, FrustrumMesh, CylinderMesh
 from PyNite import Analysis
+from PyNite.LoadProfile import LoadProfile
 
-from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError
+from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError, ParameterIncompatibilityError, \
+    DefinitionNotFoundError, DampingOptionsKeyWordError, DynamicLoadNotDefinedError
 
 
 # %%
@@ -67,12 +69,19 @@ class FEModel3D():
         self._DISPLACEMENT_AMPLITUDE = []  # A dictionary of the models maximum displacements per load frequency
         self.MassCases = {str: []}  # A dictionary of load cases to be considered as mass cases
         self.MassCases.pop(str)
+        self.LoadProfiles = {str: LoadProfile}  # A dictionary of the model's dynamic load profiles
+        self.LoadProfiles.pop(str)
+        self._DISPLACEMENT_THA = None  # A matrix to store the global time history displacements
+        self._VELOCITY_THA = None  # A matrix to store the global time history velocities
+        self._ACCELERATION_THA = None  # A matrix to store the global time history accelerations
+        self._TIME_THA = None  # A vector to store the time over which the time history analysis has been conducted
 
         self.LoadFrequencies = []  # A list to store the calculated load frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
         self.DynamicSolution = {
             "Harmonic": False,
-            "Modal": False
+            "Modal": False,
+            "Time History": False
         }
 
     @property
@@ -1137,6 +1146,11 @@ class FEModel3D():
         """
         self.MassCases[name] = MassCase(name, gravity, factor)
 
+        # Flag the model as unsolved
+        self.solution = None
+        for key in self.DynamicSolution.keys():
+            self.DynamicSolution[key] = False
+
     def add_node_load(self, Node, Direction, P, case='Case 1'):
         """Adds a nodal load to the model.
 
@@ -1334,6 +1348,11 @@ class FEModel3D():
         self.solution = None
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
+
+    def define_load_profile(self, case, time, profile):
+        if len(time) != len(profile):
+            raise ParameterIncompatibilityError('Time and Profile lists should have the same length')
+        self.LoadProfiles[case] = LoadProfile(load_case_name=case, time=time, profile=profile)
 
         
     def K(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
@@ -2760,7 +2779,7 @@ class FEModel3D():
         eigVec = eigVec[:, sort_indices]
 
         # Calculate and store the natural frequencies
-        self._NATURAL_FREQUENCIES = array([sqrt(eig_val) / (2 * pi) for eig_val in eigVal])
+        self._NATURAL_FREQUENCIES = sqrt(eigVal)/ (2 * pi)
 
         # Store the calculated modal displacements
         self._eigen_vectors = real(eigVec)
@@ -2812,6 +2831,7 @@ class FEModel3D():
         self._MODE_SHAPES = MODE_SHAPE_TEMP
 
         # Store the calculated global nodal modal displacements into each node
+        D = self._MODE_SHAPES
         for node in self.Nodes.values():
             node.DX[combo_name] = D[node.ID * 6 + 0, 0]
             node.DY[combo_name] = D[node.ID * 6 + 1, 0]
@@ -2829,57 +2849,44 @@ class FEModel3D():
         self.DynamicSolution['Modal'] = True
 
 
-    def analyze_harmonic(self, harmonic_combo, f1, f2, f_div, num_modes, constant_modal_damping = 0.02,
-                         rayleigh_alpha_1 = None, rayleigh_alpha_2 = None, first_mode_damping_ratio = None,
-                         highest_mode_damping_ratio = None, damping_ratios_in_every_mode = None,
-                         static_combo=None, log=False, check_stability=True, check_statics=False, tol=0.01,
-                         sparse=True, type_of_mass_matrix = 'consistent'):
-        """Performs harmonic analysis for given harmonic load combination and load frequency. It begins by performing a modal analysis followed by
-        a harmonic analysis. If specified, a static linear analysis will also be performed and the results will be superimposed with those from
-        harmonic analysis
-
-
-        :param harmonic_combo: The harmonic load combination
-        :type harmonic_combo: LoadCombo
-        :param f1: The lowest forcing frequency to consider
-        :type f1: float
-        :param f2: The highest forcing frequency to consider
-        :type f2: float
-        :param f_div: The number of frequencies in the range to compute for
-        :type f_div: int
-        :param num_modes: The number of modes to use in the analysis
-        :type num_modes: int
-        :param constant_modal_damping: A constant damping ratio to be used in all modes. E.g 0.02 to mean 2%
-        :type constant_modal_damping: float, optional
-        :param rayleigh_alpha_1: The rayleigh damping coefficient corresponding to mass proportionate damping
-        :type rayleigh_alpha_1: float, optional
-        :param rayleigh_alpha_2: The rayleigh damping coefficient corresponding to stiffness proportionate damping
-        :type rayleigh_alpha_2: float, optional
-        :param first_mode_damping_ratio: Damping ratio in the first mode. If provided, it will be used to calculate the
-            rayleigh damping coefficients.
-        :type first_mode_damping_ratio: float, optional
-        :param highest_mode_damping_ratio: Damping ratio in the highest mode. If provided, it will be used to calculate
-            the rayleigh damping coefficients
-        :type highest_mode_damping_ratio: float, optional
-        :param damping_ratios_in_every_mode: A list of damping ratios specified for every mode
-        :type damping_ratios_in_every_mode: list, tuple, optional
-        :param static_combo: The static load combination. For example self weight
-        :type static_combo: LoadCombo
-        :param log: Prints the analysis log to the console if set to True. Default is False.
-        :type log: bool, optional
-        :param check_stability: When set to True, checks the stiffness matrix for any unstable degrees of freedom and reports them back to the console. This does add to the solution time. Defaults to True.
-        :type check_stability: bool, optional
-        :param check_statics: When set to True, causes a statics check to be performed. Defaults to False.
-        :type check_statics: bool, optional
-        :para tol: The required accuracy in the results
-        :type tol: float, optional
-        :param sparse: Indicates whether the sparse matrix solver should be used. A matrix can be considered sparse or dense depening on how many zero terms there are. Structural stiffness matrices often contain many zero terms. The sparse solver can offer faster solutions for such matrices. Using the sparse solver on dense matrices may lead to slower solution times. Be sure ``scipy`` is installed to use the sparse solver. Default is True.
-        :type sparse: bool, optional
-        :param type_of_mass_matrix: The type of element mass matrix to use in the analysis
-        :type type_of_mass_matrix: str, optional
-        :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
-
+    def analyze_harmonic(self, harmonic_combo, f1, f2, f_div,
+                        log=False, sparse=True, type_of_mass_matrix = 'consistent',
+                         damping_options = dict()):
         """
+        Performs harmonic analysis for a given harmonic load combination and load frequency range. This analysis assumes that a modal analysis has been performed prior to calling this function.
+
+        :param harmonic_combo: The harmonic load combination.
+        :type harmonic_combo: LoadCombo
+        :param f1: The lowest forcing frequency to consider.
+        :type f1: float
+        :param f2: The highest forcing frequency to consider.
+        :type f2: float
+        :param f_div: The number of frequencies in the range to compute for.
+        :type f_div: int
+        :param log: If True, print analysis log to the console. Default is False.
+        :type log: bool, optional
+        :param sparse: Indicates whether the sparse matrix solver should be used. Default is True.
+                       Sparse solvers can offer faster solutions for matrices with many zero terms.
+        :type sparse: bool, optional
+        :param type_of_mass_matrix: The type of element mass matrix to use in the analysis. Default is 'consistent'.
+        :type type_of_mass_matrix: str, optional
+        :param damping_options: Dictionary containing damping options (optional).
+            \nAllowed keywords in damping_options:
+            - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
+            - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
+            - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
+            - 'first_mode_damping' (float): Damping ratio for the first mode.
+            - 'highest_mode_damping' (float): Damping ratio for the highest mode.
+            - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
+        :type damping_options: dict, optional
+        :raises Exception: Occurs when a singular stiffness matrix is found, indicating an unstable structure has been modeled.
+        :raises ResultsNotFoundError: Raised if modal results are not available, as harmonic analysis requires modal results.
+        """
+
+        # Check if modal results are available
+        if self.DynamicSolution['Modal'] == False:
+            raise ResultsNotFoundError(message=" Modal results are not available. Harmonic analysis requires modal results")
+
 
         # Check frequency
         if f1 < 0 or f2 < 0 or f_div < 0:
@@ -2889,36 +2896,12 @@ class FEModel3D():
             raise ValueError("f2 must be greater than f1")
 
 
-        # Perform modal analysis
-        self.analyze_modal(log, check_stability, num_modes, tol, sparse, type_of_mass_matrix)
-
-        # Perform static linear analysis if requested for
-        if static_combo != None:
-            # We do not want to perform static analysis for all the load combinations
-            # Hence we will keep the load combinations in a temporary object
-            load_combos_temp = copy.deepcopy(self.LoadCombos)
-
-            # Then remove all other load combos except the required load combo
-            self.LoadCombos.clear()
-            self.LoadCombos = {static_combo: load_combos_temp[static_combo]}
-
-            # Perform the analysis
-            self.analyze_linear(log, check_stability, check_statics, sparse)
-
-            # Restore the load combos
-            self.LoadCombos = copy.deepcopy(load_combos_temp)
-
-            # Delete the temp dictionary
-            del load_combos_temp
-
-        # At this point, we have the mode shapes, natural frequencies, and static displacement results stored in
-        # self._MODE_SHAPES, self._NATURAL_FREQUENCIES, and self._D respectively
-
         # We can now begin the harmonic analysis
         if log:
             print('+--------------------+')
             print('| Analyzing: Harmonic|')
             print('+--------------------+')
+
 
         # Import `scipy` features if the sparse solver is being used
         if sparse == True:
@@ -2935,20 +2918,16 @@ class FEModel3D():
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, check_stability, sparse).tolil(),
-                                                 D1_indices, D2_indices)
             # We will not check for stability of the mass matrix. check_stability will be set to False
             # This is because for the shell elements, the mass matrix has zeroes
             # on the rotation about z-axis DOFs
             # Only the stiffness matrix is modified to account for this 'drilling' effect
             # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
             # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
-                                                 D2_indices)
+            M11 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
+                                                 D2_indices)[0]
         else:
-            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, check_stability, sparse), D1_indices,
-                                                 D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
+            M11 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)[0]
 
         # Get the mass normalised mode shape matrix
         Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
@@ -2969,7 +2948,35 @@ class FEModel3D():
         w = 2 * pi * self._NATURAL_FREQUENCIES  # Angular natural frequencies
 
         # Calculate the damping matrix
-        # Initialise it
+        # Initialise the damping options
+        constant_modal_damping = 0.00
+        rayleigh_alpha = None
+        rayleigh_beta = None
+        first_mode_damping_ratio = None
+        highest_mode_damping_ratio = None
+        damping_ratios_in_every_mode = None
+
+        # Get the damping options from the dictionary
+        if 'constant_modal_damping' in damping_options:
+            constant_modal_damping = damping_options['constant_modal_damping']
+        if 'r_alpha' in damping_options:
+            rayleigh_alpha = damping_options['r_alpha']
+
+        if 'r_beta' in damping_options:
+            rayleigh_beta = damping_options['r_beta']
+
+        if 'first_mode_damping' in damping_options:
+            first_mode_damping_ratio = damping_options['first_mode_damping']
+
+        if 'highest_mode_damping' in damping_options:
+            highest_mode_damping_ratio = ['highest_mode_damping']
+
+        if 'damping_in_every_mode' in damping_options:
+            damping_ratios_in_every_mode = damping_options['damping_in_every_mode']
+
+
+        # Build the modal damping matrix
+        # Initialise a one dimensional array
         C_n = zeros(FV_n.shape[0])
         if damping_ratios_in_every_mode != None:
             # Declare new variable called ratios, easier to work with than the original
@@ -2979,27 +2986,27 @@ class FEModel3D():
                 # Calculate the modal damping coefficient for each mode
                 # If too many damping ratios have been provided, only the first entries
                 # corresponding to the requested modes will be used
-                # If few ratio have been provided, the last ratio will be used for the rest
+                # If fewer ratios have been provided, the last ratio will be used for the rest
                 # of the modes
                 for k in range(len(w)):
-                    C_n[k] = 2 * w[k] * ratios[min(k,len(ratios)-1)]
+                    C_n[k] = 2 * w[k] * ratios[min(k, len(ratios) - 1)]
             else:
                 # The provided input is perhaps a just a number, not a list
                 # That number will be used for all the modes
                 for k in range(len(w)):
-                   C_n[k] = 2 * damping_ratios_in_every_mode * w[k]
-        elif rayleigh_alpha_1 != None or rayleigh_alpha_2 != None:
+                    C_n[k] = 2 * damping_ratios_in_every_mode * w[k]
+        elif rayleigh_alpha != None or rayleigh_beta != None:
             # At-least one rayleigh damping coefficient has been specified
-            if rayleigh_alpha_1 == None:
-                rayleigh_alpha_1 = 0
-            if rayleigh_alpha_2 == None:
-                rayleigh_alpha_2 = 0
+            if rayleigh_alpha == None:
+                rayleigh_alpha = 0
+            if rayleigh_beta == None:
+                rayleigh_beta = 0
             for k in range(len(w)):
-                C_n[k] = rayleigh_alpha_1 + rayleigh_alpha_2 * w[k] ** 2
+                C_n[k] = rayleigh_alpha + rayleigh_beta * w[k] ** 2
 
         elif first_mode_damping_ratio != None or highest_mode_damping_ratio != None:
             # Rayleigh damping is requested and at-least one damping ratio is given
-            # If only one is given, the same will be assumed to the damping ratios
+            # If only one ratio is given, it will be assumed to be the damping
             # in the lowest and highest modes
             if first_mode_damping_ratio == None:
                 first_mode_damping_ratio = highest_mode_damping_ratio
@@ -3012,16 +3019,16 @@ class FEModel3D():
             ratio2 = highest_mode_damping_ratio
 
             # Extract the first and last angular frequencies
-            w1 = w[0] # Angular frequency of first mode
-            w2 = w[-1] # Angular frequency of last mode
+            w1 = w[0]  # Angular frequency of first mode
+            w2 = w[-1]  # Angular frequency of last mode
 
             # Calculate the rayleigh damping coefficients
-            alpha1 = 2 * w1 * w2 * (w2 * ratio1 - w1 * ratio2) / (w2 ** 2 - w1 ** 2)
-            alpha2 = 2 * (w2 * ratio2 - w1 * ratio1) / (w2 ** 2 - w1 ** 2)
+            alpha_r = 2 * w1 * w2 * (w2 * ratio1 - w1 * ratio2) / (w2 ** 2 - w1 ** 2)
+            beta_r = 2 * (w2 * ratio2 - w1 * ratio1) / (w2 ** 2 - w1 ** 2)
 
             # Calculate the modal damping coefficients
             for k in range(len(w)):
-                C_n[k] = alpha1 + alpha2 * w[k] ** 2
+                C_n[k] = alpha_r + beta_r * w[k] ** 2
         else:
             # Use one damping ratio for all modes, default ratio is 0.02 (2%)
             for k in range(len(w)):
@@ -3097,12 +3104,20 @@ class FEModel3D():
                         D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
 
                 # Save the all the maximum global displacement vectors for each load frequency
-                if static_combo == None:
-                    D_temp[:, n] = D[:, 0]
-                else:
-                    D_temp[:, n] = D[:, 0] + self._D[static_combo][:, 0]
+
+                D_temp[:, n] = D[:, 0]
                 n += 1
             self._DISPLACEMENT_AMPLITUDE = D_temp
+
+            # Put the displacement amplitudes for the first load frequency into each node
+            for node in self.Nodes.values():
+                node.DX[harmonic_combo] = D[node.ID * 6 + 0, 0]
+                node.DY[harmonic_combo] = D[node.ID * 6 + 1, 0]
+                node.DZ[harmonic_combo] = D[node.ID * 6 + 2, 0]
+                node.RX[harmonic_combo] = D[node.ID * 6 + 3, 0]
+                node.RY[harmonic_combo] = D[node.ID * 6 + 4, 0]
+                node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
+
 
         except:
             raise Exception("'The stiffness matrix is singular, which implies rigid body motion."
@@ -3113,16 +3128,472 @@ class FEModel3D():
             print('- Analysis complete')
             print('')
 
-        # Check statics if requested
-        if check_statics == True:
-            Analysis._check_statics(self)
-
         # Flag the model as solved
         self.DynamicSolution['Harmonic'] = True
 
-        # Select the frequency to show results for
-        self.set_load_frequency_to_query_results_for(f1,harmonic_combo)
-        #return Z.T @ M11 @ Z
+
+
+    def analyze_linear_time_history_newmark_modal(self, combo_name=None, AgX=None, AgY=None, AgZ=None,
+                                                  step_size = 0.01, response_duration = 1,
+                                                  newmark_gamma = 1/2, newmark_beta = 1/4,
+                                                  sparse=True, log = False, d0 = None, v0 = None,
+                                                  damping_options = dict(), type_of_mass_matrix='consistent'):
+
+        """
+           Perform linear time history analysis using the Newmark-Beta method with modal decomposition.
+
+           This method should be preceded by a modal analysis step.
+
+           :param combo_name: Name of the load combination. Default is None.
+           :type combo_name: str, optional
+
+           :param AgX: Seismic ground acceleration data for X-axis as a 2D numpy array
+                       with time and acceleration values. Default is None.
+           :type AgX: ndarray, optional
+
+           :param AgY: Seismic ground acceleration data for Y-axis as a 2D numpy array
+                       with time and acceleration values. Default is None.
+           :type AgY: ndarray, optional
+
+           :param AgZ: Seismic ground acceleration data for Z-axis as a 2D numpy array
+                       with time and acceleration values. Default is None.
+           :type AgZ: ndarray, optional
+
+           :param step_size: Time step size for the analysis. Default is 0.01 seconds.
+           :type step_size: float, optional
+
+           :param response_duration: Duration of the analysis in seconds. Default is 1 second.
+           :type response_duration: float, optional
+
+           :param newmark_gamma: Newmark-Beta gamma parameter. Default is 1/2.
+           :type newmark_gamma: float, optional
+
+           :param newmark_beta: Newmark-Beta beta parameter. Default is 1/4.
+           :type newmark_beta: float, optional
+
+           :param sparse: Use sparse matrix representations. Default is True.
+           :type sparse: bool, optional
+
+           :param log: Enable verbose logging. Default is False.
+           :type log: bool, optional
+
+           :param d0: Initial displacements. Default is None.
+           :type d0: ndarray, optional
+
+           :param v0: Initial velocities. Default is None.
+           :type v0: ndarray, optional
+
+           :param damping_options: Dictionary of damping options for the analysis. Default is zero damping.
+           :type damping_options: dict, optional\
+                \nAllowed keywords in damping_options:
+                - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
+                - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
+                - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
+                - 'first_mode_damping' (float): Damping ratio for the first mode.
+                - 'highest_mode_damping' (float): Damping ratio for the highest mode.
+                - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
+
+
+           :param type_of_mass_matrix: Type of mass matrix ('consistent' or 'lumped'). Default is 'consistent'.
+           :type type_of_mass_matrix: str, optional
+
+           :raises DampingOptionsKeyWordError: If an incorrect damping keyword is used.
+           :raises DynamicLoadNotDefinedError: If no dynamic load combination or ground acceleration data is provided.
+           :raises ResultsNotFoundError: If modal results are not available.
+           :raises ValueError: If input data is not in the expected format.
+
+           :return: None
+           """
+
+        if log:
+            print('Checking parameters for time history analysis')
+
+        # Check if modal results are available
+        if self.DynamicSolution['Modal'] == False:
+            raise ResultsNotFoundError('Modal results are not available')
+
+        # Check if correct keyword in damping options has been used
+        accepted_damping_key_words = ['constant_modal_damping',
+                                      'r_alpha',
+                                      'r_beta',
+                                      'first_mode_damping',
+                                      'highest_mode_damping',
+                                      'damping_in_every_mode']
+        for damping_key_word in damping_options.keys():
+            if damping_key_word not in accepted_damping_key_words:
+                raise DampingOptionsKeyWordError
+
+        # Check if the dynamic load combination or at least one seismic ground acceleration has been given
+        if combo_name == None and AgX == None and AgY == None and AgZ == None:
+            raise DynamicLoadNotDefinedError
+
+        # Calculate the required number of time history steps
+        total_steps = ceil(response_duration/step_size)+1
+
+        # Check if profiles for all load cases in the load combination are defined
+        load_profiles = self.LoadProfiles.keys()
+        for case in self.LoadCombos[combo_name].factors.keys():
+            if case not in load_profiles:
+                raise DefinitionNotFoundError('Profile for load case '+str(case)+' has not been defined')
+
+        if log:
+            print('Preparing parameters for time history analysis')
+
+        # Edit the load profiles so that they are defined for the entire duration of analysis
+        for load_profile in self.LoadProfiles.values():
+            case = load_profile.load_case_name
+            time : list = load_profile.time
+            profile: list = load_profile.profile
+
+            # Check if the profile has not been defined for the entire duration of analysis
+            if time[-1] < response_duration:
+
+                # We want to bring the load profile to zero immediately after the last given value
+                # We don't want to define two values at the same instance of time
+                # It can cause problems during interpolation
+                # So we will begin our definition slightly later
+                t = 1.0001 * time[-1]
+                if t < response_duration:
+                    time.extend([t,response_duration])
+                    profile.extend([0,0])
+
+                # Redefine the profile
+                self.LoadProfiles[case] = LoadProfile(case,time,profile)
+
+
+        # Extend the AgX seismic input definition too if it is less than the response duration
+        if AgX != None:
+            if isinstance(AgX, ndarray):
+                if AgX.shape[0] == 2 or AgX.shape[1] == 2:
+                    if AgX.shape[1] == 2:
+                        AgX = AgX.T
+
+                    time, a_g = AgX[0,:], AgX[1,:]
+                    if time[-1] < response_duration:
+
+                        # We want to bring the load profile to zero immediately after the last given value
+                        # We don't want to define two values at the same instance of time
+                        # It can cause problems during interpolation
+                        # So we will begin our definition slightly later
+                        t = 1.0001 * time[-1]
+                        if t < response_duration:
+                            time.extend([t, response_duration])
+                            a_g.extend([0, 0])
+
+                        # Redefine seismic input
+                        AgX = array([time,a_g])
+
+                else:
+                    raise ValueError ("AgX must have two rows, first one for time and second one for ground acceleration")
+            else:
+                raise ValueError("AgX must be a numpy array")
+
+        # Extend the AgY seismic input definition too if it is less than the response duration
+        if AgY != None:
+            if isinstance(AgY, ndarray):
+                if AgY.shape[0] == 2 or AgY.shape[1] == 2:
+                    if AgY.shape[1] == 2:
+                        AgY = AgY.T
+
+                    time, a_g = AgY[0, :], AgY[1, :]
+                    if time[-1] < response_duration:
+
+                        # We want to bring the load profile to zero immediately after the last given value
+                        # We don't want to define two values at the same instance of time
+                        # It can cause problems during interpolation
+                        # So we will begin our definition slightly later
+                        t = 1.0001 * time[-1]
+                        if t < response_duration:
+                            time.extend([t, response_duration])
+                            a_g.extend([0, 0])
+
+
+                        # Redefine seismic input
+                        AgY = array([time, a_g])
+
+
+                else:
+                    raise ValueError(
+                        " AgY must have two rows, first one for time and second one for ground acceleration")
+            else:
+                raise ValueError("AgY must be a numpy array")
+
+        # Extend the AgZ seismic input definition too if it is less than the response duration
+        if AgZ != None:
+            if isinstance(AgZ, ndarray):
+                if AgZ.shape[0] == 2 or AgZ.shape[1] == 2:
+                    if AgZ.shape[1] == 2:
+                        AgZ = AgZ.T
+
+                    time, a_g = AgZ[0, :], AgZ[1, :]
+                    if time[-1] < response_duration:
+
+                        # We want to bring the load profile to zero immediately after the last given value
+                        # We don't want to define two values at the same instance of time
+                        # It can cause problems during interpolation
+                        # So we will begin our definition slightly later
+                        t = 1.0001 * time[-1]
+                        if t < response_duration:
+                            time.extend([t, response_duration])
+                            a_g.extend([0, 0])
+
+                        # Redefine seismic input
+                        AgZ = array([time, a_g])
+
+                else:
+                    raise ValueError(
+                        " AgZ must have two rows, first one for time and second one for ground acceleration")
+            else:
+                raise ValueError("AgZ must be a numpy array")
+
+        # Prepare the model
+        Analysis._prepare_model(self)
+
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
+
+        # Make sure D2 is a matrix in 2 dimensions
+        D2 = D2.reshape(len(D2), 1)
+
+        # Get the partitioned matrices
+        if sparse == True:
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse).tolil(), D1_indices,
+                                                 D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
+                                                 D1_indices, D2_indices)
+        else:
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse), D1_indices,
+                                                 D2_indices)
+            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
+                                                 D1_indices, D2_indices)
+
+        # Initialise load vector for the entire analysis duration
+        F = zeros((len(D1_indices), total_steps))
+
+        # Build the influence vectors used to define the earthquake force
+        # Influence vectors are used to select the degrees of freedom in
+        # the model stimulated by the earthquake
+
+        total_dof = len(D1_indices)+len(D2_indices)
+        i = 0
+        influence_X = zeros(total_dof)
+        influence_Y = zeros(total_dof)
+        influence_Z = zeros(total_dof)
+        while i < total_dof:
+            influence_X[i+0] = 1
+            influence_Y[i+1] = 1
+            influence_Z[i+2] = 1
+            i += 6
+
+        # Build the load vector step by step
+        # We will make modifications to the load combination in order to define the dynamic load
+        # Each step uses the original load combination, modifies it according to the given load
+        # profiles, and calculates the load vector for that step
+        # Hence we must make a copy of the load combination since each step needs the original
+        # load combination. Also at the end of the analysis we want to restore the original load
+        # combination
+        original_load_combo = copy.deepcopy(self.LoadCombos)
+        t = 0
+        for i in range(total_steps):
+            # Check if a load combination has been given
+            if combo_name != None:
+                # For each load case in the load combination
+                for case_name in self.LoadCombos[combo_name].factors.keys():
+
+                    # Extract the time vector from the load profile definition for this load case
+                    time_list = self.LoadProfiles[case_name].time
+
+                    # Extract the load profile for this load case
+                    profile_list = self.LoadProfiles[case_name].profile
+
+                    # Interpolate the load profile to find the scaling factor for this time t
+                    scaler = interp(t, time_list,profile_list)
+
+                    # Get the load factor from the load combination. We will scale this factor
+                    # It would be more correct to scale the actual load value and not its factor
+                    # But it's hard to do so especially that some load cases are defined by more
+                    # than one value, e.g line member loads are defined by two values
+                    # Also the same load case can apply to different load types e.g the same
+                    # load case can be used for point loads, line loads, pressures, etc.
+                    # Hence, the easiest way to accomplish this is by scaling the load factor
+                    current_factor = self.LoadCombos[combo_name].factors[case_name]
+
+                    # Edit the load combination using the changed load factor
+                    self.LoadCombos[combo_name].factors[case_name] = scaler * current_factor
+
+                # For this time t, the load combination has been edited to reflect the loading situation
+                # at this point in time. Hence the fixed end reactions and nodal loads can be calculated
+                # for this point in time
+                FER1, FER2 = self._partition(self.FER(combo_name), D1_indices, D2_indices)
+                P1, P2 = self._partition(self.P(combo_name), D1_indices, D2_indices)
+
+                # Save the calculated nodal loads and fixed end reactions into the load vector
+                F[:,i] = P1[:,0] - FER1[:,0]
+
+            # Add the seismic forces as well if the ground acceleration has been given
+            # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
+            # and a_g is the ground acceleration
+            # Interpolation is used again to find the ground acceleration at time t
+            if AgX!=None:
+                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices) \
+                        * interp(t, AgX[0, :], AgX[1, :])
+                F[:,i] += AgX_F
+
+            if AgY!=None:
+                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices) \
+                         * interp(t, AgY[0, :], AgY[1, :])
+                F[:,i] += AgY_F
+
+            if AgX!=None:
+                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices) \
+                         * interp(t, AgZ[0,:]), AgZ[1,:]
+                F[:,i] += AgZ_F
+
+            # Update the time
+            t += step_size
+
+            # Restore the time load combination to the original one
+            self.LoadCombos = copy.deepcopy(original_load_combo)
+
+        # Update force vector to include the effects of the constrained degrees of freedom
+        # In theory we also need to add -M12 @ A2 and -C12 @ V2.
+        # However, the constrained displacements don't really change in time for normal
+        # structural analysis
+        # Hence, the velocity and accelerations will be zero
+        F[:,:] -= K12 @ D2
+
+        # Get the mode shapes
+        Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
+
+        # Get the natural frequencies
+        w = 2 * pi * self.NATURAL_FREQUENCIES()
+
+        # Get the initial values of displacements and velocities
+        # If not given, set them to zero
+        if d0 == None:
+            d0_temp = zeros(len(D1_indices))
+        else:
+            d0_temp, d02 = self._partition(d0, D1_indices, D2_indices)
+
+        if v0 == None:
+            v0_temp = zeros(len(D1_indices))
+        else:
+            v0_temp, v02 = self._partition(v0, D1_indices, D2_indices)
+
+        # Find the corresponding quantities the modal coordinate system
+        d0_n = solve(Z.T @ Z, Z.T @ d0_temp)
+        v0_n = solve(Z.T @ Z, Z.T @ v0_temp)
+        F_n = Z.T @ F
+
+        # Run the analysis
+        if log:
+            print('+-------------------------+')
+            print('| Analyzing: Time History |')
+            print('+-------------------------+')
+
+        try:
+            TIME, D1, V1, A1 = \
+                Analysis._transient_solver_linear_modal(d0_n=d0_n, v0_n=v0_n, F0_n=F_n[:, 0],
+                                                        F_n=F_n, step_size=step_size,
+                                                        required_duration=response_duration,
+                                                        mass_normalised_eigen_vectors=Z,
+                                                        natural_freq=w, newmark_gamma=newmark_gamma,
+                                                        newmark_beta=newmark_beta, taylor_alpha=0,
+                                                        wilson_theta=1, damping_options=damping_options,
+                                                        log=log)
+        except:
+            raise Exception("Out of memory")
+
+        # Form the global response vectors D, V and A
+        D = zeros((len(self.Nodes) * 6, total_steps))
+        V = zeros((len(self.Nodes) * 6, total_steps))
+        A = zeros((len(self.Nodes) * 6, total_steps))
+
+        # The accelerations and velocities for the constrained degrees of freedom will be zeros
+        V2 = zeros(D2.shape)
+        A2 = zeros(D2.shape)
+
+        for node in self.Nodes.values():
+
+            if D2_indices.count(node.ID * 6 + 0) == 1:
+                D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+                V.itemset((node.ID * 6 + 0, 0), V2[D2_indices.index(node.ID * 6 + 0), 0])
+                A.itemset((node.ID * 6 + 0, 0), A2[D2_indices.index(node.ID * 6 + 0), 0])
+            else:
+                D[node.ID * 6 + 0, :] = D1[D1_indices.index(node.ID * 6 + 0), :]
+                V[node.ID * 6 + 0, :] = V1[D1_indices.index(node.ID * 6 + 0), :]
+                A[node.ID * 6 + 0, :] = A1[D1_indices.index(node.ID * 6 + 0), :]
+            if D2_indices.count(node.ID * 6 + 1) == 1:
+                D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+                V.itemset((node.ID * 6 + 1, 0), V2[D2_indices.index(node.ID * 6 + 1), 0])
+                A.itemset((node.ID * 6 + 1, 0), A2[D2_indices.index(node.ID * 6 + 1), 0])
+            else:
+                D[node.ID * 6 + 1, :] = D1[D1_indices.index(node.ID * 6 + 1), :]
+                V[node.ID * 6 + 1, :] = V1[D1_indices.index(node.ID * 6 + 1), :]
+                A[node.ID * 6 + 1, :] = A1[D1_indices.index(node.ID * 6 + 1), :]
+
+            if D2_indices.count(node.ID * 6 + 2) == 1:
+                D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+                V.itemset((node.ID * 6 + 2, 0), V2[D2_indices.index(node.ID * 6 + 2), 0])
+                A.itemset((node.ID * 6 + 2, 0), A2[D2_indices.index(node.ID * 6 + 2), 0])
+            else:
+                D[node.ID * 6 + 2, :] = D1[D1_indices.index(node.ID * 6 + 2), :]
+                V[node.ID * 6 + 2, :] = V1[D1_indices.index(node.ID * 6 + 2), :]
+                A[node.ID * 6 + 2, :] = A1[D1_indices.index(node.ID * 6 + 2), :]
+
+            if D2_indices.count(node.ID * 6 + 3) == 1:
+                D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+                V.itemset((node.ID * 6 + 3, 0), V2[D2_indices.index(node.ID * 6 + 3), 0])
+                A.itemset((node.ID * 6 + 3, 0), A2[D2_indices.index(node.ID * 6 + 3), 0])
+            else:
+                D[node.ID * 6 + 3, :] = D1[D1_indices.index(node.ID * 6 + 3), :]
+                V[node.ID * 6 + 3, :] = V1[D1_indices.index(node.ID * 6 + 3), :]
+                A[node.ID * 6 + 3, :] = A1[D1_indices.index(node.ID * 6 + 3), :]
+
+            if D2_indices.count(node.ID * 6 + 4) == 1:
+                D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+                V.itemset((node.ID * 6 + 4, 0), V2[D2_indices.index(node.ID * 6 + 4), 0])
+                A.itemset((node.ID * 6 + 4, 0), A2[D2_indices.index(node.ID * 6 + 4), 0])
+            else:
+                D[node.ID * 6 + 4, :] = D1[D1_indices.index(node.ID * 6 + 4), :]
+                V[node.ID * 6 + 4, :] = V1[D1_indices.index(node.ID * 6 + 4), :]
+                A[node.ID * 6 + 4, :] = A1[D1_indices.index(node.ID * 6 + 4), :]
+
+            if D2_indices.count(node.ID * 6 + 5) == 1:
+                D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+                V.itemset((node.ID * 6 + 5, 0), V2[D2_indices.index(node.ID * 6 + 5), 0])
+                A.itemset((node.ID * 6 + 5, 0), A2[D2_indices.index(node.ID * 6 + 5), 0])
+            else:
+                D[node.ID * 6 + 5, :] = D1[D1_indices.index(node.ID * 6 + 5), :]
+                V[node.ID * 6 + 5, :] = V1[D1_indices.index(node.ID * 6 + 5), :]
+                A[node.ID * 6 + 5, :] = A1[D1_indices.index(node.ID * 6 + 5), :]
+
+        # Save the responses
+        self._TIME_THA = TIME
+        self._DISPLACEMENT_THA = D
+        self._VELOCITY_THA = V
+        self._ACCELERATION_THA = A
+
+        # Put the displacements at the end of the analysis into each node
+        for node in self.Nodes.values():
+            node.DX[combo_name] = D[node.ID * 6 + 0, -1]
+            node.DY[combo_name] = D[node.ID * 6 + 1, -1]
+            node.DZ[combo_name] = D[node.ID * 6 + 2, -1]
+            node.RX[combo_name] = D[node.ID * 6 + 3, -1]
+            node.RY[combo_name] = D[node.ID * 6 + 4, -1]
+            node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
+
+        Analysis._calc_reactions(self, log)
+
+        if log:
+            print('')
+            print('Analysis Complete')
+            print('')
+
+        # Flag the model as solved
+        self.DynamicSolution['Time History'] = True
+
+
 
 
     def _mass_normalised_mode_shapes(self, m, modes):
@@ -3163,6 +3634,30 @@ class FEModel3D():
         Returns the Mode shapes of the structure
         """
         return self._MODE_SHAPES
+
+    def DISPLACEMENT_THA(self):
+        """
+        Returns the global time history displacements
+        """
+        return self._DISPLACEMENT_THA
+
+    def VELOCITY_THA(self):
+        """
+        Returns the global time history velocities
+        """
+        return self._VELOCITY_THA
+
+    def ACCELERATION_THA(self):
+        """
+        Returns the global time history accelerations
+        """
+        return self._ACCELERATION_THA
+
+    def TIME_THA(self):
+        """
+        Returns the time vector over which the time history analysis has been conducted
+        """
+        return self._TIME_THA
 
     def unique_name(self, dictionary, prefix):
         """Returns the next available unique name for a dictionary of objects.

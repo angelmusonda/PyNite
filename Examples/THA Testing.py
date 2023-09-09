@@ -68,12 +68,11 @@ frame.add_member('Column7', 'N7', 'N11', 'Concrete', Iy, Iz, J, A)
 frame.add_member('Column8', 'N8', 'N12', 'Concrete', Iy, Iz, J, A)
 
 # Add Slab
-frame.add_material('Concrete_slab', E*0.5, G,nu, rho)
-frame.add_rectangle_mesh('Slab1',1,4,4,0.2,'Concrete_slab',origin=[0,0,3.5],element_type='Quad')
+frame.add_rectangle_mesh('Slab1',1,4,4,0.2,'Concrete',origin=[0,0,3.5],element_type='Quad')
 frame.Meshes['Slab1'].generate()
 
 for element in frame.Quads.values():
-    frame.add_quad_surface_pressure(element.name,-30e3,case = 'Pressure')
+    frame.add_quad_surface_pressure(element.name,10e3,case = 'Pressure')
 
 # Add supports
 frame.def_support('N1', True, True, True, True, True, True)
@@ -83,14 +82,14 @@ frame.def_support('N4', True, True, True, True, True, True)
 
 # Add loads
 
-frame.add_member_dist_load('Beam1','FZ',-30e3,-30e3)
+#frame.add_member_dist_load('Beam1','FZ',-30e3,-30e3)
 
 #frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='P')
 #frame.add_member_dist_load('Beam2','FZ',-200e3,-200e3,case='C')
 #frame.add_member_pt_load('Beam1','FZ',-50e3,2,'case2')
 #frame.add_member_pt_load('Beam2','FZ',-50,2,'case2')
 
-frame.add_node_load('N11','FX',-500E3,'N')
+frame.add_node_load('N11','FX',1,'N')
 #frame.set_as_mass_case("Pressure")
 
 #frame.set_as_mass_case('P')
@@ -104,8 +103,9 @@ frame.add_node_load('N11','FX',-500E3,'N')
 #print(frame.Plates['R3'].M_HRZ())
 
 
+
+frame.add_member_dist_load('Beam3','FZ',-10e3,-30e3, case='Beam3')
 """
-frame.add_member_dist_load('Beam3','FZ',-10e3,-30e3)
 frame.add_member_dist_load('Beam4','FZ',-10e3,0)
 frame.add_member_dist_load('Beam5','FZ',-50e3,-30e3)
 frame.add_member_dist_load('Beam6','FZ',-30e3,-30e3)
@@ -122,7 +122,7 @@ frame.add_load_combo('COMB1',{'Pressure':1})
 damping = dict(constant_modal_damping = 0.02)
 frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='consistent')
 #print(frame.analyze_harmonic(harmonic_combo='COMB1', f1=2,f2=10,f_div=10, sparse=False,log=False, damping_options=damping))
-print(frame.analyze_linear())
+#frame.analyze_linear()
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
 
 #frame.set_load_frequency_to_query_results_for(harmonic_combo='COMB1',frequency=4.21)
@@ -134,19 +134,15 @@ print(frame.analyze_linear())
 
 
 import numpy as np
+time = [0,1,5,10]
+profile = [0,-1,1,0.5]
+frame.define_load_profile('N',time, profile)
+frame.define_load_profile('Pressure',time=[0,1,10], profile=[0,1,1])
 
-import pickle
-with open('model.pickle', 'wb') as file:
-    # Serialize and save the object to the file
-    pickle.dump(frame, file)
 
-from PyNite.Visualization import render_model
-render_model(model = frame,
-             render_loads=False,
-             annotation_size=0.1,
-             deformed_shape=True,
-             deformed_scale=100,
-             combo_name='COMB1')
+print(frame.analyze_linear_time_history_newmark_modal(d0 = None, v0 = None,load_combo='COMB1',AgX=None, AgY=None, AgZ=None,
+                                                      step_size=0.1, response_duration=1, newmark_beta=0.25,
+                                                      newmark_gamma=0.5, damping_options=damping, log=False))
 
 
 
