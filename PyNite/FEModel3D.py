@@ -5,7 +5,7 @@ import copy
 from math import isclose, ceil
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
-from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace
+from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix, lil_matrix
@@ -63,7 +63,8 @@ class FEModel3D():
         self._D = {str: []}  # A dictionary of the model's nodal displacements by load combination
         self._D.pop(str)
         self._MODE_SHAPES = None  # A matrix of the model's mode shapes
-        self._eigen_vectors = None# Eigen vectors of the model
+        self._eigen_vectors = None # Eigen vectors of the model
+        self._mass_participation = None # A dictionary to hold the percentages of mass participation in the x, y and z directions
         self.Active_Mode = 1  # A variable to keep track of the active mode
         self._NATURAL_FREQUENCIES = []  # A list to store the calculated natural frequencies
         self._DISPLACEMENT_AMPLITUDE = []  # A dictionary of the models maximum displacements per load frequency
@@ -2668,7 +2669,7 @@ class FEModel3D():
 
     def analyze_modal(self, log=False, check_stability=True, num_modes=1, tol=0.01, sparse=True,
                       type_of_mass_matrix = 'consistent'):
-        """Performs modal analysis.
+        """Performs modal analysis. Also calculates the mass participation percentages in each direction
 
         :param log: Prints the analysis log to the console if set to True. Default is False.
         :type log: bool, optional
@@ -2682,6 +2683,8 @@ class FEModel3D():
         :type sparse: bool, optional
         :param type_of_mass_matrix: The type of element mass matrix to use in the analysis
         :type type_of_mass_matrix: str, optional
+        :return: Mass participation percentages
+        :rtype: dict
         :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
         """
 
@@ -2729,6 +2732,9 @@ class FEModel3D():
 
         eigVal = None  # Vector to store eigenvalues
         eigVec = None  # Matrix to store eigenvectors
+
+        # Make sure the required number of modes is less or equal to the total number of modes
+        num_modes = min(K11.shape[0],num_modes)
 
         if K11.shape == (0, 0):
             if log: print('The model does not have any degree of freedom')
@@ -2840,6 +2846,55 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, 0]
             node.RZ[combo_name] = D[node.ID * 6 + 5, 0]
 
+        # Calculate the effective modal mass percentage
+        # Begin by calculating the total mass of the structure in each direction
+        total_dof = len(D1_indices)+len(D2_indices)
+        i = 0
+        influence_X = zeros((total_dof,1))
+        influence_Y = zeros((total_dof,1))
+        influence_Z = zeros((total_dof,1))
+
+        while i < total_dof:
+            influence_X[i+0,0] = 1
+            influence_Y[i+1,0] = 1
+            influence_Z[i+2,0] = 1
+            i += 6
+
+
+        # Partition the influence vectors
+        influence_X = self._partition(influence_X, D1_indices, D2_indices)[0]
+        influence_Y = self._partition(influence_Y, D1_indices, D2_indices)[0]
+        influence_Z = self._partition(influence_Z, D1_indices, D2_indices)[0]
+
+        # Calculate total masses in each direction
+        if sparse:
+            Mass_X = sum(M11.tocsr() @ influence_X)
+            Mass_Y = sum(M11.tocsr() @ influence_Y)
+            Mass_Z = sum(M11.tocsr() @ influence_Z)
+
+        else:
+            Mass_X = sum(M11 @ influence_X)
+            Mass_Y = sum(M11 @ influence_Y)
+            Mass_Z = sum(M11 @ influence_Z)
+
+        # Calculate the mass normalised mode shapes
+        Z = self._mass_normalised_mode_shapes(M11,self._eigen_vectors)
+
+        # Calculate the modal participation factors
+        MPF_X = Z.T @ M11 @ influence_X
+        MPF_Y = Z.T @ M11 @ influence_Y
+        MPF_Z = Z.T @ M11 @ influence_Z
+
+        # Calculate the effective modal masses
+        EMM_X = sum(MPF_X**2)
+        EMM_Y = sum(MPF_Y**2)
+        EMM_Z = sum(MPF_Z**2)
+
+        # Calculate and save the participating mass
+        self._mass_participation = {'X':100*EMM_X/Mass_X,
+                                    'Y':100*EMM_Y/Mass_Y,
+                                    'Z':100*EMM_Z/Mass_Z}
+
         if log:
             print('')
             print('- Analysis complete')
@@ -2847,6 +2902,9 @@ class FEModel3D():
 
         # Flag the model as solved
         self.DynamicSolution['Modal'] = True
+
+        return self._mass_participation
+
 
 
     def analyze_harmonic(self, harmonic_combo, f1, f2, f_div,
@@ -3132,11 +3190,11 @@ class FEModel3D():
         self.DynamicSolution['Harmonic'] = True
 
 
-    def analyze_linear_time_history_newmark(self, analysis_method = 'direct', combo_name=None, AgX=None, AgY=None, AgZ=None,
-                                            step_size = 0.01, response_duration = 1,
-                                            newmark_gamma = 1/2, newmark_beta = 1/4,
-                                            sparse=True, log = False, d0 = None, v0 = None,
-                                            damping_options = dict(), type_of_mass_matrix='consistent'):
+    def analyze_linear_time_history_newmark_beta(self, analysis_method = 'direct', combo_name=None, AgX=None,
+                                                 AgY=None, AgZ=None, step_size = 0.01, response_duration = 1,
+                                                 newmark_gamma = 1/2, newmark_beta = 1/4, sparse=True,
+                                                 log = False, d0 = None, v0 = None,
+                                                 damping_options = dict(), type_of_mass_matrix='consistent'):
 
         """
             Perform linear time history analysis using the Newmark-Beta method by either direct or modal decomposition
@@ -3206,6 +3264,10 @@ class FEModel3D():
         if log:
             print('Checking parameters for time history analysis')
 
+        # Check if enter load combination name exists
+        if combo_name!=None and combo_name not in self.LoadCombos.keys():
+            raise ValueError("'"+combo_name+"' is not among the defined load combinations")
+
         # Check if the analysis method name is correct
         if analysis_method!='direct' and analysis_method!='modal':
             raise ValueError("Allowed analysis methods are 'modal' and 'direct'")
@@ -3232,8 +3294,19 @@ class FEModel3D():
                     raise DampingOptionsKeyWordError
 
         # Check if the dynamic load combination or at least one seismic ground acceleration has been given
-        if combo_name == None and AgX == None and AgY == None and AgZ == None:
+        if combo_name == None and AgX is None and AgY is None and AgZ is None:
             raise DynamicLoadNotDefinedError
+
+        # If only a seismic load has been provided, add default the load combination 'Combo 1'
+        if combo_name==None:
+            combo_name = 'Combo 1'
+            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':1}, combo_tags='THS')
+
+        # Add tags to the load combinations that do not have tags. We will use this to filter results
+        for combo in self.LoadCombos.values():
+            if combo.combo_tags == None:
+                combo.combo_tags = 'unknown_type'
+
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -3270,7 +3343,7 @@ class FEModel3D():
 
 
         # Extend the AgX seismic input definition too if it is less than the response duration
-        if AgX != None:
+        if AgX is not None:
             if isinstance(AgX, ndarray):
                 if AgX.shape[0] == 2 or AgX.shape[1] == 2:
                     if AgX.shape[1] == 2:
@@ -3285,8 +3358,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgX = array([time,a_g])
@@ -3297,7 +3370,7 @@ class FEModel3D():
                 raise ValueError("AgX must be a numpy array")
 
         # Extend the AgY seismic input definition too if it is less than the response duration
-        if AgY != None:
+        if AgY is not None:
             if isinstance(AgY, ndarray):
                 if AgY.shape[0] == 2 or AgY.shape[1] == 2:
                     if AgY.shape[1] == 2:
@@ -3312,8 +3385,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgY = array([time, a_g])
@@ -3325,7 +3398,7 @@ class FEModel3D():
                 raise ValueError("AgY must be a numpy array")
 
         # Extend the AgZ seismic input definition too if it is less than the response duration
-        if AgZ != None:
+        if AgZ is not None:
             if isinstance(AgZ, ndarray):
                 if AgZ.shape[0] == 2 or AgZ.shape[1] == 2:
                     if AgZ.shape[1] == 2:
@@ -3340,8 +3413,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgZ = array([time, a_g])
@@ -3363,13 +3436,11 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse).tolil(), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
 
@@ -3382,13 +3453,13 @@ class FEModel3D():
 
         total_dof = len(D1_indices)+len(D2_indices)
         i = 0
-        influence_X = zeros(total_dof)
-        influence_Y = zeros(total_dof)
-        influence_Z = zeros(total_dof)
+        influence_X = zeros((total_dof,1))
+        influence_Y = zeros((total_dof,1))
+        influence_Z = zeros((total_dof,1))
         while i < total_dof:
-            influence_X[i+0] = 1
-            influence_Y[i+1] = 1
-            influence_Z[i+2] = 1
+            influence_X[i+0,0] = 1
+            influence_Y[i+1,0] = 1
+            influence_Z[i+2,0] = 1
             i += 6
 
         # Build the load vector step by step
@@ -3440,20 +3511,20 @@ class FEModel3D():
             # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
-            if AgX!=None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices) \
+            if AgX is not None:
+                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
                         * interp(t, AgX[0, :], AgX[1, :])
-                F[:,i] += AgX_F
+                F[:,i] += AgX_F[0,:]
 
-            if AgY!=None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices) \
+            if AgY is not None:
+                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
                          * interp(t, AgY[0, :], AgY[1, :])
-                F[:,i] += AgY_F
+                F[:,i] += AgY_F[0,:]
 
-            if AgX!=None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices) \
-                         * interp(t, AgZ[0,:]), AgZ[1,:]
-                F[:,i] += AgZ_F
+            if AgZ is not None:
+                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
+                         * interp(t, AgZ[0,:], AgZ[1,:])
+                F[:,i] += AgZ_F[0,:]
 
             # Update the time
             t += step_size
@@ -3614,7 +3685,7 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, -1]
             node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
 
-        Analysis._calc_reactions(self, log)
+        Analysis._calc_reactions(self, log, combo_tags='THA')
 
         if log:
             print('')
@@ -3694,6 +3765,10 @@ class FEModel3D():
         if log:
             print('Checking parameters for time history analysis')
 
+        # Check if enter load combination name exists
+        if combo_name!=None and combo_name not in self.LoadCombos.keys():
+            raise ValueError("'"+combo_name+"' is not among the defined load combinations")
+
         # Check if the analysis method name is correct
         if analysis_method!='direct' and analysis_method!='modal':
             raise ValueError("Allowed analysis methods are 'modal' and 'direct'")
@@ -3720,8 +3795,19 @@ class FEModel3D():
                     raise DampingOptionsKeyWordError
 
         # Check if the dynamic load combination or at least one seismic ground acceleration has been given
-        if combo_name == None and AgX == None and AgY == None and AgZ == None:
+        if combo_name == None and AgX is None and AgY is None and AgZ is None:
             raise DynamicLoadNotDefinedError
+
+        # If only a seismic load has been provided, add default the load combination 'Combo 1'
+        if combo_name==None:
+            combo_name = 'Combo 1'
+            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':1}, combo_tags='THS')
+
+        # Add tags to the load combinations that do not have tags. We will use this to filter results
+        for combo in self.LoadCombos.values():
+            if combo.combo_tags == None:
+                combo.combo_tags = 'unknown_type'
+
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -3758,7 +3844,7 @@ class FEModel3D():
 
 
         # Extend the AgX seismic input definition too if it is less than the response duration
-        if AgX != None:
+        if AgX is not None:
             if isinstance(AgX, ndarray):
                 if AgX.shape[0] == 2 or AgX.shape[1] == 2:
                     if AgX.shape[1] == 2:
@@ -3773,8 +3859,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgX = array([time,a_g])
@@ -3785,7 +3871,7 @@ class FEModel3D():
                 raise ValueError("AgX must be a numpy array")
 
         # Extend the AgY seismic input definition too if it is less than the response duration
-        if AgY != None:
+        if AgY is not None:
             if isinstance(AgY, ndarray):
                 if AgY.shape[0] == 2 or AgY.shape[1] == 2:
                     if AgY.shape[1] == 2:
@@ -3800,8 +3886,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgY = array([time, a_g])
@@ -3813,7 +3899,7 @@ class FEModel3D():
                 raise ValueError("AgY must be a numpy array")
 
         # Extend the AgZ seismic input definition too if it is less than the response duration
-        if AgZ != None:
+        if AgZ is not None:
             if isinstance(AgZ, ndarray):
                 if AgZ.shape[0] == 2 or AgZ.shape[1] == 2:
                     if AgZ.shape[1] == 2:
@@ -3828,8 +3914,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgZ = array([time, a_g])
@@ -3851,13 +3937,11 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse).tolil(), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
 
@@ -3870,13 +3954,13 @@ class FEModel3D():
 
         total_dof = len(D1_indices)+len(D2_indices)
         i = 0
-        influence_X = zeros(total_dof)
-        influence_Y = zeros(total_dof)
-        influence_Z = zeros(total_dof)
+        influence_X = zeros((total_dof,1))
+        influence_Y = zeros((total_dof,1))
+        influence_Z = zeros((total_dof,1))
         while i < total_dof:
-            influence_X[i+0] = 1
-            influence_Y[i+1] = 1
-            influence_Z[i+2] = 1
+            influence_X[i+0,0] = 1
+            influence_Y[i+1,0] = 1
+            influence_Z[i+2,0] = 1
             i += 6
 
         # Build the load vector step by step
@@ -3928,20 +4012,20 @@ class FEModel3D():
             # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
-            if AgX!=None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices) \
+            if AgX is not None:
+                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
                         * interp(t, AgX[0, :], AgX[1, :])
-                F[:,i] += AgX_F
+                F[:,i] += AgX_F[0,:]
 
-            if AgY!=None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices) \
+            if AgY is not None:
+                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
                          * interp(t, AgY[0, :], AgY[1, :])
-                F[:,i] += AgY_F
+                F[:,i] += AgY_F[0,:]
 
-            if AgX!=None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices) \
-                         * interp(t, AgZ[0,:]), AgZ[1,:]
-                F[:,i] += AgZ_F
+            if AgZ is not None:
+                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
+                         * interp(t, AgZ[0,:], AgZ[1,:])
+                F[:,i] += AgZ_F[0,:]
 
             # Update the time
             t += step_size
@@ -4102,7 +4186,7 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, -1]
             node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
 
-        Analysis._calc_reactions(self, log)
+        Analysis._calc_reactions(self, log, combo_tags='THA')
 
         if log:
             print('')
@@ -4183,6 +4267,10 @@ class FEModel3D():
         if log:
             print('Checking parameters for time history analysis')
 
+        # Check if enter load combination name exists
+        if combo_name!=None and combo_name not in self.LoadCombos.keys():
+            raise ValueError("'"+combo_name+"' is not among the defined load combinations")
+
         # Check if the analysis method name is correct
         if analysis_method!='direct' and analysis_method!='modal':
             raise ValueError("Allowed analysis methods are 'modal' and 'direct'")
@@ -4209,8 +4297,19 @@ class FEModel3D():
                     raise DampingOptionsKeyWordError
 
         # Check if the dynamic load combination or at least one seismic ground acceleration has been given
-        if combo_name == None and AgX == None and AgY == None and AgZ == None:
+        if combo_name == None and AgX is None and AgY is None and AgZ is None:
             raise DynamicLoadNotDefinedError
+
+        # If only a seismic load has been provided, add default the load combination 'Combo 1'
+        if combo_name==None:
+            combo_name = 'Combo 1'
+            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':1}, combo_tags='THS')
+
+        # Add tags to the load combinations that do not have tags. We will use this to filter results
+        for combo in self.LoadCombos.values():
+            if combo.combo_tags == None:
+                combo.combo_tags = 'unknown_type'
+
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -4247,7 +4346,7 @@ class FEModel3D():
 
 
         # Extend the AgX seismic input definition too if it is less than the response duration
-        if AgX != None:
+        if AgX is not None:
             if isinstance(AgX, ndarray):
                 if AgX.shape[0] == 2 or AgX.shape[1] == 2:
                     if AgX.shape[1] == 2:
@@ -4262,8 +4361,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgX = array([time,a_g])
@@ -4274,7 +4373,7 @@ class FEModel3D():
                 raise ValueError("AgX must be a numpy array")
 
         # Extend the AgY seismic input definition too if it is less than the response duration
-        if AgY != None:
+        if AgY is not None:
             if isinstance(AgY, ndarray):
                 if AgY.shape[0] == 2 or AgY.shape[1] == 2:
                     if AgY.shape[1] == 2:
@@ -4289,8 +4388,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgY = array([time, a_g])
@@ -4302,7 +4401,7 @@ class FEModel3D():
                 raise ValueError("AgY must be a numpy array")
 
         # Extend the AgZ seismic input definition too if it is less than the response duration
-        if AgZ != None:
+        if AgZ is not None:
             if isinstance(AgZ, ndarray):
                 if AgZ.shape[0] == 2 or AgZ.shape[1] == 2:
                     if AgZ.shape[1] == 2:
@@ -4317,8 +4416,8 @@ class FEModel3D():
                         # So we will begin our definition slightly later
                         t = 1.0001 * time[-1]
                         if t < response_duration:
-                            time.extend([t, response_duration])
-                            a_g.extend([0, 0])
+                            time = append(time, [t, response_duration])
+                            a_g = append(a_g, [0, 0])
 
                         # Redefine seismic input
                         AgZ = array([time, a_g])
@@ -4340,13 +4439,11 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse).tolil(), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, sparse), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
 
@@ -4359,13 +4456,13 @@ class FEModel3D():
 
         total_dof = len(D1_indices)+len(D2_indices)
         i = 0
-        influence_X = zeros(total_dof)
-        influence_Y = zeros(total_dof)
-        influence_Z = zeros(total_dof)
+        influence_X = zeros((total_dof,1))
+        influence_Y = zeros((total_dof,1))
+        influence_Z = zeros((total_dof,1))
         while i < total_dof:
-            influence_X[i+0] = 1
-            influence_Y[i+1] = 1
-            influence_Z[i+2] = 1
+            influence_X[i+0,0] = 1
+            influence_Y[i+1,0] = 1
+            influence_Z[i+2,0] = 1
             i += 6
 
         # Build the load vector step by step
@@ -4417,20 +4514,20 @@ class FEModel3D():
             # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
-            if AgX!=None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices) \
+            if AgX is not None:
+                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
                         * interp(t, AgX[0, :], AgX[1, :])
-                F[:,i] += AgX_F
+                F[:,i] += AgX_F[0,:]
 
-            if AgY!=None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices) \
+            if AgY is not None:
+                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
                          * interp(t, AgY[0, :], AgY[1, :])
-                F[:,i] += AgY_F
+                F[:,i] += AgY_F[0,:]
 
-            if AgX!=None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices) \
-                         * interp(t, AgZ[0,:]), AgZ[1,:]
-                F[:,i] += AgZ_F
+            if AgZ is not None:
+                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
+                         * interp(t, AgZ[0,:], AgZ[1,:])
+                F[:,i] += AgZ_F[0,:]
 
             # Update the time
             t += step_size
@@ -4591,7 +4688,7 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, -1]
             node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
 
-        Analysis._calc_reactions(self, log)
+        Analysis._calc_reactions(self, log, combo_tags='THA')
 
         if log:
             print('')
@@ -4664,6 +4761,12 @@ class FEModel3D():
         Returns the time vector over which the time history analysis has been conducted
         """
         return self._TIME_THA
+
+    def MASS_PARTICIPATION_PERCENTAGES(self):
+        """
+        Returns the mass participation of the calculated modes in the x, y and z directions
+        """
+        return self._mass_participation
 
     def unique_name(self, dictionary, prefix):
         """Returns the next available unique name for a dictionary of objects.

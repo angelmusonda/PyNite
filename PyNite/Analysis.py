@@ -1108,7 +1108,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     lu_sparse_CCM = None
     lu_CCM, lu_piv_CCM = None, None
     if sparse:
-        lu_sparse_CCM = splu (CCM,permc_spec="MMD_ATA")
+        lu_sparse_CCM = splu (CCM.tocsc(),permc_spec="MMD_ATA")
     else:
         lu_CCM, lu_piv_CCM = lu_factor (CCM, overwrite_a=True)
 

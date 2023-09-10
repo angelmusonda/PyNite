@@ -1,3 +1,5 @@
+import numpy
+
 from PyNite import FEModel3D
 model = FEModel3D()
 node_num = 1;
@@ -50,16 +52,55 @@ model.add_load_combo('COMB1',{'Case 1':1})
 model.define_load_profile('Case 1', [0,0.01],[1,1])
 
 
+
+
+# Earthquake data
+# Specify the path to your text file
+file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\sample_earthquake.txt'
+
+# Open the file and read its contents into the variable
+with open(file_path, 'r') as file:
+    file_content = file.read()
+
+# Now, you have the entire content of the file in the variable file_content
+# You can process it as needed, including skipping the first 4 lines and splitting into values
+
+# Initialize an empty list to store the values
+values = []
+
+# Split the content into lines
+lines = file_content.split('\n')
+
+# Skip the first 4 lines
+lines = lines[4:]
+
+# Process the remaining lines
+for line in lines:
+    # Split each line into individual values, remove empty strings, and convert to float
+    line_values = [float(val) for val in line.split() if val]
+    values.extend(line_values)
+
+time = numpy.linspace(start=0,stop=0.005*6001, num=6001)
+
+# Convert the 'values' list to a numpy array and multiply by gravity
+values = 9.81 * numpy.array(values)
+
+# Create a 2D array with 'values' in the first row and 'time' in the second row
+ground_acceleration = numpy.vstack((time, values))
+
 #model.analyze_modal(num_modes=20,sparse=True)
-model.analyze_linear_time_history_HHT_alpha(  analysis_method='direct',
-                                            combo_name='COMB1',
-                                            AgX=None,
-                                            AgY=None,
-                                            AgZ=None,
-                                            step_size=0.00001,
-                                            response_duration=0.01,
-                                            HHT_alpha=-1/3,
-                                            log=True)
+
+#print(model.MASS_PARTICIPATION_PERCENTAGES())
+damping = dict(r_beta = 0.0001)
+model.analyze_linear_time_history_wilson_theta( analysis_method='direct',
+
+                                            AgZ=ground_acceleration,
+                                            AgX=ground_acceleration,
+                                            AgY=ground_acceleration,
+                                            step_size=0.005,
+                                            response_duration=0.5,
+                                            damping_options=damping,
+                                            log=False, sparse=False)
 #print(model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
@@ -78,11 +119,13 @@ plt.ylabel('Y-axis')
 plt.title('Simple Line Plot')
 
 # Show the plot
-plt.show()
+#plt.show()
 
-"""
+
 from PyNite.Visualization import render_model
 render_model(model,
+             deformed_scale=2,
+             deformed_shape=True,
              render_loads=True,
              annotation_size=0.05,
-             combo_name='COMB1')"""
+             combo_name='Combo 1')
