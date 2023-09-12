@@ -20,6 +20,7 @@ model.add_node("C",0,2,3)
 
 # Add target node
 model.add_node("T",0,1,3)
+model.add_node('T2',0,0,1.5)
 
 # Add materials
 nu = 0.29
@@ -39,14 +40,19 @@ J = (0.1*0.1**3)*(1/3 - 0.21*0.1/0.1 * (1-0.1**4 / (12*0.1**4)))
 model.add_member('AB','A','B','Steel',Iy,Iz,J,A)
 model.add_member('BC','B','C','Steel',Iy,Iz,J,A)
 
-#for node in model.Nodes.values():
-#   model.def_support(node.name,support_DX=True)
+for node in model.Nodes.values():
+   model.def_support(node.name,support_DX=True)
 
 # Add supports
 model.def_support('A',support_DY=True, support_DZ=True, support_RZ=True,support_DX=True)
 model.def_support('C',support_DZ=True, support_RY=True, support_DX=True)
 
-model.add_node_load('C','FY',100e3, case='Case 1')
+model.add_node_load('C','FY',3000, case='Case 1')
+weight = 9.81 * rho * A
+model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
+model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
+
+
 model.add_load_combo('COMB1',{'Case 1':1})
 
 model.define_load_profile('Case 1', [0,0.01],[1,1])
@@ -88,44 +94,49 @@ values = 9.81 * numpy.array(values)
 # Create a 2D array with 'values' in the first row and 'time' in the second row
 ground_acceleration = numpy.vstack((time, values))
 
-#model.analyze_modal(num_modes=20,sparse=True)
+model.analyze_modal(num_modes=20,sparse=True)
 
 #print(model.MASS_PARTICIPATION_PERCENTAGES())
-damping = dict(r_beta = 0.0001)
-model.analyze_linear_time_history_wilson_theta( analysis_method='direct',
-
-                                            AgZ=ground_acceleration,
-                                            AgX=ground_acceleration,
-                                            AgY=ground_acceleration,
+damping = dict(constant_modal_damping = 0.02)
+print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 50, f2=150,f_div=1000,sparse=True,
+                       damping_options=damping))
+"""model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
+                                            combo_name='COMB1',
                                             step_size=0.005,
-                                            response_duration=0.5,
+                                            response_duration=30,
                                             damping_options=damping,
-                                            log=False, sparse=False)
+                                            log=False, sparse=True)"""
 #print(model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
 
 # Sample data
-x = model.TIME_THA()
-dof = model.Nodes['T'].ID * 6 + 3
-
-y = model.DISPLACEMENT_THA()[dof,:]
+#x = model.TIME_THA()
+#dof = model.Nodes['T'].ID * 6 + 3
+dof2 = model.Nodes['T2'].ID * 6 +1
+#y = model.DISPLACEMENT_THA()[dof2,:]
 # Create a line plot
-plt.plot(x, y)
+#plt.plot(x, y)
 
+x2 = model.LoadFrequencies
+y2 = model.DISPLACEMENT_AMPLITUDE()[dof2,:]
+plt.plot(x2,y2)
 # Add labels and a title
 plt.xlabel('X-axis')
 plt.ylabel('Y-axis')
 plt.title('Simple Line Plot')
 
+
+
+#print(model.NATURAL_FREQUENCIES())
 # Show the plot
-#plt.show()
+plt.show()
 
-
+"""
 from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
              render_loads=True,
              annotation_size=0.05,
-             combo_name='Combo 1')
+             combo_name='Combo 1') """

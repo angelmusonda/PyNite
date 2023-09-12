@@ -4,8 +4,8 @@ import warnings
 import copy
 from math import isclose, ceil
 
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones
-from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp
+from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix, lil_matrix
@@ -66,8 +66,10 @@ class FEModel3D():
         self._eigen_vectors = None # Eigen vectors of the model
         self._mass_participation = None # A dictionary to hold the percentages of mass participation in the x, y and z directions
         self.Active_Mode = 1  # A variable to keep track of the active mode
-        self._NATURAL_FREQUENCIES = []  # A list to store the calculated natural frequencies
-        self._DISPLACEMENT_AMPLITUDE = []  # A dictionary of the models maximum displacements per load frequency
+        self._NATURAL_FREQUENCIES = None  # A list to store the calculated natural frequencies
+        self._DISPLACEMENT_AMPLITUDE = None  # A matrix of the models displacement amplitudes for each load frequency
+        self._VELOCITY_AMPLITUDE = None # A matrix of the models velocity amplitudes for each load frequency
+        self._ACCELERATION_AMPLITUDE = None  # A matrix of the models acceleration amplitudes for each load frequency
         self.MassCases = {str: []}  # A dictionary of load cases to be considered as mass cases
         self.MassCases.pop(str)
         self.LoadProfiles = {str: LoadProfile}  # A dictionary of the model's dynamic load profiles
@@ -2982,9 +2984,11 @@ class FEModel3D():
             # Only the stiffness matrix is modified to account for this 'drilling' effect
             # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
             # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
+            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
             M11 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
                                                  D2_indices)[0]
         else:
+            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
             M11 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)[0]
 
         # Get the mass normalised mode shape matrix
@@ -2997,10 +3001,7 @@ class FEModel3D():
         P1, P2 = self._partition(self.P(harmonic_combo), D1_indices, D2_indices)
 
         # Calculate the normalised force vector
-        FV_n = Z.T @ subtract(P1,FER1)
-
-        # Initialise vectors to hold the modal displacements coordinates
-        Q = zeros((FV_n.shape[0], 1))
+        FV_n = Z.T @ (P1-FER1 - K12 @ D2)
 
         # Calculate the damping coefficients
         w = 2 * pi * self._NATURAL_FREQUENCIES  # Angular natural frequencies
@@ -3112,19 +3113,30 @@ class FEModel3D():
 
         self.LoadFrequencies = array(freq)  # Save it
 
-        # Initialise matrix to hold the normal displacements
+        # Initialise matrices to hold the three responses
         D_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
+        V_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
+        A_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
 
         # Calculate the modal coordinates for each forcing frequency
-
         try:
-            n = 0  # Index for each displacement vector
+            k = 0  # Index for each displacement vector
+            # Initialise vector to hold the modal response in complex notation
+            Q = zeros(len(FV_n))+zeros(len(FV_n))*1j
             for omega in omega_list:
-                for j in range(FV_n.shape[0]):
-                    Q[j, 0] = FV_n[j, 0] * sqrt(1 / ((w[j] ** 2 - omega ** 2) ** 2 + (omega ** 2) * (C_n[j]) ** 2))
+                for n in range(FV_n.shape[0]):
+                    # Calculate the amplitude
+                    q = FV_n[n, 0] * 1 / sqrt((w[n] ** 2 - omega ** 2) ** 2 + (omega ** 2) * (C_n[n]) ** 2)
 
-                # Calculate the Physical displacements
-                D1 = Z @ Q
+                    # Calculate the phase
+                    phase = arctan2(C_n[n]*omega, w[n]**2-omega**2)
+
+                    # Calculate the response in complex notation
+                    Q[n] = q*(cos(phase)+1j*sin(phase))
+
+                # Calculate the magnitude of the physical displacements
+                D1 = abs (Z @ Q)
+                D1 = D1.reshape(len(D1),1)
 
                 # Form the global displacement vector, D, from D1 and D2
                 D = zeros((len(self.Nodes) * 6, 1))
@@ -3163,18 +3175,22 @@ class FEModel3D():
 
                 # Save the all the maximum global displacement vectors for each load frequency
 
-                D_temp[:, n] = D[:, 0]
-                n += 1
+                D_temp[:, k] = D[:, 0]
+                V_temp[:, k] = omega*D[:, 0]
+                A_temp[:, k] = omega**2 *D[:, 0]
+                k += 1
             self._DISPLACEMENT_AMPLITUDE = D_temp
+            self._VELOCITY_AMPLITUDE = V_temp
+            self._ACCELERATION_AMPLITUDE = A_temp
 
             # Put the displacement amplitudes for the first load frequency into each node
             for node in self.Nodes.values():
-                node.DX[harmonic_combo] = D[node.ID * 6 + 0, 0]
-                node.DY[harmonic_combo] = D[node.ID * 6 + 1, 0]
-                node.DZ[harmonic_combo] = D[node.ID * 6 + 2, 0]
-                node.RX[harmonic_combo] = D[node.ID * 6 + 3, 0]
-                node.RY[harmonic_combo] = D[node.ID * 6 + 4, 0]
-                node.RZ[harmonic_combo] = D[node.ID * 6 + 5, 0]
+                node.DX[harmonic_combo] = D_temp[node.ID * 6 + 0, 0]
+                node.DY[harmonic_combo] = D_temp[node.ID * 6 + 1, 0]
+                node.DZ[harmonic_combo] = D_temp[node.ID * 6 + 2, 0]
+                node.RX[harmonic_combo] = D_temp[node.ID * 6 + 3, 0]
+                node.RY[harmonic_combo] = D_temp[node.ID * 6 + 4, 0]
+                node.RZ[harmonic_combo] = D_temp[node.ID * 6 + 5, 0]
 
 
         except:
@@ -3188,7 +3204,6 @@ class FEModel3D():
 
         # Flag the model as solved
         self.DynamicSolution['Harmonic'] = True
-
 
     def analyze_linear_time_history_newmark_beta(self, analysis_method = 'direct', combo_name=None, AgX=None,
                                                  AgY=None, AgZ=None, step_size = 0.01, response_duration = 1,
@@ -4725,6 +4740,18 @@ class FEModel3D():
         Returns the global nodal displacement amplitude of the model solved using harmonic analysis
         """
         return self._DISPLACEMENT_AMPLITUDE
+
+    def VELOCITY_AMPLITUDE(self):
+        """
+        Returns the global nodal velocity amplitude of the model solved using harmonic analysis
+        """
+        return self._VELOCITY_AMPLITUDE
+
+    def ACCELERATION_AMPLITUDE(self):
+        """
+        Returns the global nodal acceleration amplitude of the model solved using harmonic analysis
+        """
+        return self._ACCELERATION_AMPLITUDE
 
     def NATURAL_FREQUENCIES(self):
         """

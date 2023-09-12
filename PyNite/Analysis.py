@@ -1,4 +1,7 @@
 from math import isclose, ceil
+
+from scipy.sparse import csc_matrix
+
 from PyNite.LoadCombo import LoadCombo
 from numpy import array, atleast_2d, zeros, diag, ones, identity
 from numpy.linalg import solve
@@ -1081,8 +1084,8 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     # Import sparse solver if matrices are sparse
     if sparse == True:
         from scipy.sparse.linalg import spsolve, splu
-        M = M.tocsr()
-        K = K.tocsr()
+        M = M.tocsc()
+        K = K.tocsc()
     else:
         from scipy.linalg import lu_factor, lu_solve
 
