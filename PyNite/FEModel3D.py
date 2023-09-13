@@ -4,7 +4,7 @@ import warnings
 import copy
 from math import isclose, ceil
 
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 from numpy.linalg import solve
 from scipy.sparse.linalg import eigs, eigsh
@@ -67,9 +67,12 @@ class FEModel3D():
         self._mass_participation = None # A dictionary to hold the percentages of mass participation in the x, y and z directions
         self.Active_Mode = 1  # A variable to keep track of the active mode
         self._NATURAL_FREQUENCIES = None  # A list to store the calculated natural frequencies
-        self._DISPLACEMENT_AMPLITUDE = None  # A matrix of the models displacement amplitudes for each load frequency
-        self._VELOCITY_AMPLITUDE = None # A matrix of the models velocity amplitudes for each load frequency
-        self._ACCELERATION_AMPLITUDE = None  # A matrix of the models acceleration amplitudes for each load frequency
+        self._DISPLACEMENT_REAL = None  # A matrix of the model's real part of the displacement for each load frequency
+        self._VELOCITY_REAL = None # A matrix of the model's real part of the velocity for each load frequency
+        self._ACCELERATION_REAL = None  # A matrix of the model's real part of the acceleration for each load frequency
+        self._DISPLACEMENT_IMAGINARY = None  # A matrix of the model's imaginary part of the displacement for each load frequency
+        self._VELOCITY_IMAGINARY = None  # A matrix of the model's imaginary part of the velocity for each load frequency
+        self._ACCELERATION_IMAGINARY = None  # A matrix of the model's imaginary part of the acceleration for each load frequency
         self.MassCases = {str: []}  # A dictionary of load cases to be considered as mass cases
         self.MassCases.pop(str)
         self.LoadProfiles = {str: LoadProfile}  # A dictionary of the model's dynamic load profiles
@@ -3114,9 +3117,9 @@ class FEModel3D():
         self.LoadFrequencies = array(freq)  # Save it
 
         # Initialise matrices to hold the three responses
-        D_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
-        V_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
-        A_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]))
+        D_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]),dtype=complex)
+        V_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]),dtype=complex)
+        A_temp = zeros((len(self.Nodes) * 6, omega_list.shape[0]),dtype=complex)
 
         # Calculate the modal coordinates for each forcing frequency
         try:
@@ -3135,11 +3138,11 @@ class FEModel3D():
                     Q[n] = q*(cos(phase)+1j*sin(phase))
 
                 # Calculate the magnitude of the physical displacements
-                D1 = abs (Z @ Q)
+                D1 =  (Z @ Q)
                 D1 = D1.reshape(len(D1),1)
 
                 # Form the global displacement vector, D, from D1 and D2
-                D = zeros((len(self.Nodes) * 6, 1))
+                D = zeros((len(self.Nodes) * 6, 1), dtype=complex)
 
                 for node in self.Nodes.values():
 
@@ -3179,9 +3182,12 @@ class FEModel3D():
                 V_temp[:, k] = omega*D[:, 0]
                 A_temp[:, k] = omega**2 *D[:, 0]
                 k += 1
-            self._DISPLACEMENT_AMPLITUDE = D_temp
-            self._VELOCITY_AMPLITUDE = V_temp
-            self._ACCELERATION_AMPLITUDE = A_temp
+            self._DISPLACEMENT_REAL= real(D_temp)
+            self._DISPLACEMENT_IMAGINARY = imag(D_temp)
+            self._VELOCITY_REAL = real(V_temp)
+            self._VELOCITY_IMAGINARY = imag(V_temp)
+            self._ACCELERATION_REAL = real(A_temp)
+            self._ACCELERATION_IMAGINARY = imag(A_temp)
 
             # Put the displacement amplitudes for the first load frequency into each node
             for node in self.Nodes.values():
@@ -4735,23 +4741,41 @@ class FEModel3D():
             modes[:, col] = modes[:, col] / sqrt(Mr[col, col])
         return modes
 
-    def DISPLACEMENT_AMPLITUDE(self):
+    def DISPLACEMENT_REAL(self):
         """
-        Returns the global nodal displacement amplitude of the model solved using harmonic analysis
+        Returns the real part of the global nodal displacement of the model solved using harmonic analysis
         """
-        return self._DISPLACEMENT_AMPLITUDE
+        return self._DISPLACEMENT_REAL
 
-    def VELOCITY_AMPLITUDE(self):
+    def DISPLACEMENT_IMAGINARY(self):
         """
-        Returns the global nodal velocity amplitude of the model solved using harmonic analysis
+        Returns the imaginary part of the global nodal displacement of the model solved using harmonic analysis
         """
-        return self._VELOCITY_AMPLITUDE
+        return self._DISPLACEMENT_IMAGINARY
 
-    def ACCELERATION_AMPLITUDE(self):
+    def VELOCITY_REAL(self):
         """
-        Returns the global nodal acceleration amplitude of the model solved using harmonic analysis
+        Returns the real part of the global nodal velocity of the model solved using harmonic analysis
         """
-        return self._ACCELERATION_AMPLITUDE
+        return self._VELOCITY_REAL
+
+    def VELOCITY_IMAGINARY(self):
+        """
+        Returns the imaginary part of the global nodal velocity of the model solved using harmonic analysis
+        """
+        return self._VELOCITY_IMAGINARY
+
+    def ACCELERATION_REAL(self):
+        """
+        Returns the real part of the global nodal acceleration of the model solved using harmonic analysis
+        """
+        return self._ACCELERATION_REAL
+
+    def ACCELERATION_IMAGINARY(self):
+        """
+        Returns the real part of the global nodal acceleration of the model solved using harmonic analysis
+        """
+        return self._ACCELERATION_IMAGINARY
 
     def NATURAL_FREQUENCIES(self):
         """

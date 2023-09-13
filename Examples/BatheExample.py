@@ -3,7 +3,8 @@ import numpy
 from PyNite import FEModel3D
 model = FEModel3D()
 node_num = 1;
-from numpy import linspace
+from numpy import linspace, sqrt
+
 z = linspace(0.3,2.7,8)
 for i in z:
     model.add_node("N"+str(node_num),0,0,i)
@@ -119,7 +120,8 @@ dof2 = model.Nodes['T2'].ID * 6 +1
 #plt.plot(x, y)
 
 x2 = model.LoadFrequencies
-y2 = model.DISPLACEMENT_AMPLITUDE()[dof2,:]
+y2 = sqrt(model.DISPLACEMENT_REAL()[dof2,:]**2 + model.DISPLACEMENT_IMAGINARY()[dof2,:]**2)
+
 plt.plot(x2,y2)
 # Add labels and a title
 plt.xlabel('X-axis')
