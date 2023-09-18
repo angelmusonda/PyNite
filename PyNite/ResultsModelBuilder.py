@@ -1,6 +1,6 @@
 import pickle
 from PyNite import FEModel3D, Analysis
-from numpy import pi, zeros, interp
+from numpy import pi, zeros, interp, linspace, array, sqrt
 from PyNite.PyNiteExceptions import InputOutOfRangeError, ResultsNotFoundError
 import copy
 
@@ -33,75 +33,74 @@ class ResultsModelBuilder():
             node.RY[combo_name] = response[node.ID * 6 + 4, 0]
             node.RZ[combo_name] = response[node.ID * 6 + 5, 0]
 
-    def _calculate_reactions(self, model: FEModel3D, combo_name,log=True):
+    def _save_reaction_into_node(self, model:FEModel3D, R, combo_name):
         """
-        Calculates the reactions of the model.
+        Saves the calculated reactions into each node object.
 
         Args:
             model (FEModel3D): The solved finite element model.
+            R: The calculated reaction, can be real or imaginary in case of harmonic analysis
             combo_name (str): The name of the load combination.
 
         Returns:
             None
         """
-        # Re-calculate reactions
-        # We do not want to calculate reactions for all the load combinations
-        # Hence we will keep the load combinations in a temporary object
-        load_combos_temp = copy.deepcopy(model.LoadCombos)
+        # Put the reactions at the last time step into the constrained nodes
+        for node in model.Nodes.values():
+            if node.support_DX == True:
+                node.RxnFX[combo_name] = R[node.ID * 6 + 0, -1]
+            else:
+                node.RxnFX[combo_name] = 0.0
+            if node.support_DY == True:
+                node.RxnFY[combo_name] = R[node.ID * 6 + 1, -1]
+            else:
+                node.RxnFY[combo_name] = 0.0
+            if node.support_DZ == True:
+                node.RxnFZ[combo_name] = R[node.ID * 6 + 2, -1]
+            else:
+                node.RxnFZ[combo_name] = 0.0
+            if node.support_RX == True:
+                node.RxnMX[combo_name] = R[node.ID * 6 + 3, -1]
+            else:
+                node.RxnMX[combo_name] = 0.0
+            if node.support_RY == True:
+                node.RxnMY[combo_name] = R[node.ID * 6 + 4, -1]
+            else:
+                node.RxnMY[combo_name] = 0.0
+            if node.support_RZ == True:
+                node.RxnMZ[combo_name] = R[node.ID * 6 + 5, -1]
+            else:
+                node.RxnMZ[combo_name] = 0.0
 
-        # Then remove all other load combos except the required load combo
-        model.LoadCombos.clear()
-        model.LoadCombos = {combo_name: load_combos_temp[combo_name]}
 
-        # Calculate the reactions
-        Analysis._calc_reactions(model,log)
-
-        # Restore the load combos
-        model.LoadCombos = copy.deepcopy(load_combos_temp)
-
-
-class HarmonicResultsModelBuilder(ResultsModelBuilder):
+class FRAResultsModelBuilder(ResultsModelBuilder):
     """
-    Represents a results model builder for Harmonic analysis.
-    The class is used to build a model with results at a specified load frequency.
+    Represents a results model builder for Frequency Response Analysis (FRA).
 
+    This class is used to build a results model with data at a specified load frequency in FRA.
+
+    Parameters:
+        saved_model (str): The path to the saved finite element model file.
+        freq (float): The load frequency at which results are requested within the FRA.
+        response_type (str, optional): The type of response quantity requested ("DR" for real displacement, "VR" for real velocity, "AR" for real acceleration, "DI" for imaginary displacement, "VI" for imaginary velocity, or "AI" for imaginary acceleration). Default is "DR".
+
+    Raises:
+        ResultsNotFoundError: If no FRA results are available in the model.
+        InputOutOfRangeError: If the requested frequency is outside the calculated frequency range of the FRA analysis.
+        ValueError: If an invalid response_type is provided.
+
+    Attributes:
+        model (FEModel3D): The finite element model containing FRA results.
+
+    Example:
+        builder = FRAResultsModelBuilder("model_file.pkl", freq=10.0, response_type="DR")
+        result_model = builder.model  # Access the results model with FRA data at frequency 10.0 and real displacement response.
     """
 
-    def __init__(self, saved_model):
-        """
-        Initialize a HarmonicResultsModelBuilder object.
+    def __init__(self, saved_model, freq, response_type = 'DR'):
 
-        Args:
-            saved_model (str): The path to the saved finite element model file.
-
-        Returns:
-            None
-        """
         with open(str(saved_model), 'rb') as file:
             self._solved_model: FEModel3D = pickle.load(file)
-
-        self._total_response = None
-
-
-    def get_solved_model_at_freq(self, freq, combo_name, response_type = "D", log=False):
-        """
-        Get the model's response at a specific frequency. This model can be visualised and can be used to extract other
-        response quantities, graphs, for every member at the specified frequency of load
-
-        Args:
-            freq (float): The frequency of the load at which results are required.
-            combo_name (str): The name of the harmonic load combination.
-            response_type (str, optional, default="D"): The type of response:
-                - "D": Displacement response (default).
-                - "V": Velocity response.
-                - "A": Acceleration response.
-
-        Returns:
-            FEModel3D: The finite element model with Harmonic response stored in the nodes.
-
-        Raises:
-            InputOutOfRange Error, ResultsNotFound Error
-        """
 
         model = self._solved_model
 
@@ -114,67 +113,72 @@ class HarmonicResultsModelBuilder(ResultsModelBuilder):
             raise InputOutOfRangeError
 
         # Determine the type of response quantity requested for and get the total response
-        if response_type == "D":
-            self._total_response = model.DISPLACEMENT_AMPLITUDE()
-        elif response_type == "V":
-            self._total_response = model.DISPLACEMENT_AMPLITUDE()*(2*pi*freq)
-        elif response_type == "A":
-            self._total_response = model.DISPLACEMENT_AMPLITUDE()*(2*pi*freq)**2
+        if response_type == "DR":
+            self._total_response = model.DISPLACEMENT_REAL()
+            self._total_reaction = model.REACTIONS_REAL()
+        elif response_type == "VR":
+            self._total_response = model.VELOCITY_REAL()
+            self._total_reaction = model.REACTIONS_REAL()
+        elif response_type == "AR":
+            self._total_response = model.ACCELERATION_REAL()
+            self._total_reaction = model.REACTIONS_REAL()
+        elif response_type == "DI":
+            self._total_response = model.DISPLACEMENT_IMAGINARY()
+            self._total_reaction = model.REACTIONS_IMAGINARY()
+        elif response_type == "VI":
+            self._total_response = model.VELOCITY_IMAGINARY()
+            self._total_reaction = model.REACTIONS_IMAGINARY()
+        elif response_type == "AI":
+            self._total_response = model.ACCELERATION_IMAGINARY()
+            self._total_reaction = model.REACTIONS_IMAGINARY()
         else:
-            self._total_response = model.DISPLACEMENT_AMPLITUDE()
+            raise ValueError('Allowed response types are "DR", "VR", "AR", "D1", "V1", and "AI" but '+response_type+ ' was given.')
 
         # Get the number of degrees of freedom for building the response vector at a specified load frequency
         dof = self._total_response.shape[0]
 
-        # Initialise the response vector at a specified load frequency
+        # Initialise the response and reaction vectors at a specified load frequency
         response_at_freq = zeros((dof, 1))
-
+        reactions_at_freq = zeros((dof, 1))
         # Build the response at a specified frequency from the total response through interpolation
         for i in range(dof):
             # Linear interpolation
             response_at_freq[i, 0] = interp(freq, model.LoadFrequencies, self._total_response[i, :])
+            reactions_at_freq[i,0] = interp(freq, model.LoadFrequencies, self._total_reaction[i, :])
 
         # Now that the response is interpolated, put it into respective nodes
-        self._save_response_into_node(model=model,response=response_at_freq,combo_name=combo_name)
+        self._save_response_into_node(model=model, response=response_at_freq, combo_name=model.FRA_combo_name)
+        self._save_reaction_into_node(model=model, R = reactions_at_freq, combo_name=model.FRA_combo_name)
 
-        # Calculate the reactions
-        self._calculate_reactions(model = model, combo_name=combo_name, log=log)
-        # Return the model with requested for response quantity and load frequency
-        return model
+        # Interpolate the reactions for the specified load frequency from the total reactions
+        # The model below contains results at the specified frequency
+        self.model = model
 
 class ModalResultsModelBuilder(ResultsModelBuilder):
     """
-    Represents a results model builder for Modal analysis.
-    The class is used to build a model with mode shapes of a specified mode.
+       Represents a results model builder for Modal Analysis.
 
-    """
+       This class is used to build a results model with mode shapes for a specified mode.
 
-    def __init__(self, saved_model):
-        """
-        Initialize a ModalResultsModelBuilder object.
+       Parameters:
+           saved_model (str): The path to the saved finite element model file.
+           mode (int): The mode number for which mode shapes are requested.
 
-        Args:
-            saved_model (str): The path to the saved finite element model file.
+       Raises:
+           ResultsNotFoundError: If no modal analysis results are available in the model.
+           InputOutOfRangeError: If the requested mode is outside the calculated modes.
 
-        Returns:
-            None
-        """
+       Attributes:
+           model (FEModel3D): The finite element model containing modal analysis results.
+
+       Example:
+           builder = ModalResultsModelBuilder("model_file.pkl", mode=3)
+           result_model = builder.model  # Access the results model with mode shape data for mode 3.
+       """
+
+    def __init__(self, saved_model, mode):
         with open(str(saved_model), 'rb') as file:
             self._solved_model: FEModel3D = pickle.load(file)
-
-    def get_solved_model_for_mode(self, mode=1):
-        """
-        Get the model for a specified mode. This model's modal deformation can be visualised.
-
-        Args:
-            mode (int): The required mode
-
-        Returns:
-            FEModel3D: The finite element model with Modal deformation stored in the nodes.
-
-        Raises:
-            InputOutOfRange, ResultsNotFound Error
-        """
 
         model = self._solved_model
         mode = int(mode)
@@ -194,24 +198,28 @@ class ModalResultsModelBuilder(ResultsModelBuilder):
         # Get the required mode shape
         Single_Mode_Shape = (Mode_Shapes[:,mode-1])
         Single_Mode_Shape = Single_Mode_Shape.reshape(len(Single_Mode_Shape),1)
+
         # Now that the response is interpolated, put it into respective nodes
         self._save_response_into_node(model=model, response=Single_Mode_Shape, combo_name='Modal Combo')
 
         # Return the model with requested for response quantity and load frequency
-        return model
+        self.model = model
+        model.Active_Mode = mode
 
     def get_natural_frequency_for_mode(self, mode):
         """
-        Get the natural frequency for specified mode.
+        Get the natural frequency for a specified mode.
+
         Args:
-            mode (int): The mode for which frequency is required
+            mode (int): The mode number for which the natural frequency is required.
+
         Returns:
             float: The natural frequency of the specified mode.
 
         Raises:
-            InputOutOfRange, ResultsNotFound Error
+            ResultsNotFoundError: If no modal analysis results are available in the model.
+            InputOutOfRangeError: If the requested mode is outside the calculated modes.
         """
-
         model = self._solved_model
         mode = int(mode)
 
@@ -221,42 +229,108 @@ class ModalResultsModelBuilder(ResultsModelBuilder):
 
         return model.NATURAL_FREQUENCIES()[mode - 1]
 
-    def get_natural_frequencies(self):
-        """
-        Get the all the calculated natural frequencies of the model.
-        Returns:
-            list: The natural frequencies of the model.
+class THAResultsModelBuilder(ResultsModelBuilder):
+    """
+       Represents a results model builder for Time History Analysis (THA).
 
-        Raises:
-             ResultsNotFound Error
-        """
+       This class is used to build a results model with data at a specified time instance within a time history analysis.
+
+       Parameters:
+           saved_model (str): The path to the solved and saved finite element model file.
+           time (float): The time instance for which results are requested within the time history analysis.
+           response_type (str, optional): The type of response quantity requested ("D" for displacement, "V" for velocity, or "A" for acceleration). Default is "D".
+
+       Raises:
+           ResultsNotFoundError: If no time history results are available in the model.
+           InputOutOfRangeError: If the requested time is outside the calculated time range of the time history analysis.
+           ValueError: If an invalid response_type is provided.
+
+       Attributes:
+           model (FEModel3D): The finite element model containing time history analysis results.
+           _total_response (numpy.ndarray): The response vector at the specified time instance.
+
+       Example:
+           builder = THAResultsModelBuilder("model_file.pkl", time=2.0, response_type="D")
+           result_model = builder.model  # Access the results model with data at time instance 2.0 and displacement response.
+       """
+
+    def __init__(self, saved_model, time, response_type='D'):
+
+        with open(str(saved_model), 'rb') as file:
+            self._solved_model: FEModel3D = pickle.load(file)
 
         model = self._solved_model
 
         # Check if results are available
-        if model.DynamicSolution['Modal'] == False:
+        if model.DynamicSolution['Time History'] == False:
             raise ResultsNotFoundError
 
-        return model.NATURAL_FREQUENCIES()
+        # Check if the time is within the calculated range
+        if time < min(model.TIME_THA()) or time > max(model.TIME_THA()):
+            raise InputOutOfRangeError('Time history results are only available for up to t = '+str(max(model.TIME_THA())))
+
+        # Determine the type of response quantity requested for and get the total response
+        if response_type == "D":
+            self._total_response = model.DISPLACEMENT_THA()
+        elif response_type == "V":
+            self._total_response = model.VELOCITY_THA()
+        elif response_type == "A":
+            self._total_response = model.ACCELERATION_THA()
+        else:
+            raise ValueError(
+                'Allowed response types are "D", "V", and "A" but ' + response_type + ' was given.')
+
+        # Get the number of degrees of freedom for building the response vector at a specified time instance
+        dof = self._total_response.shape[0]
+
+        # Initialise the response and reaction vectors at a specified time instance
+        response_at_time = zeros((dof, 1))
+        reactions_at_time = zeros((dof, 1))
+
+        # Build the response at a specified frequency from the total response through interpolation
+        for i in range(dof):
+            # Linear interpolation
+            response_at_time[i, 0] = interp(time, model.TIME_THA(), self._total_response[i, :])
+            reactions_at_time[i, 0] = interp(time, model.TIME_THA(), model.REACTIONS_THA()[i, :])
+
+        # Now that the response is interpolated, put it into respective nodes
+        self._save_response_into_node(model=model, response=response_at_time, combo_name=model.THA_combo_name)
+
+        # The model below contains results at the specified time instance
+        self.model = model
 
 
-# TESTING
-model_builder = HarmonicResultsModelBuilder("model.pickle")
-solved_model =model_builder.get_solved_model_at_freq(freq=3,combo_name='COMB1',log=True )
-load_freq = solved_model.LoadFrequencies
+freqs = linspace(50,150,100)
+disp = []
+react = []
+max_moment = []
+path = r'C:\Users\angel\PycharmProjects\PyNite\Examples\model.pickle'
+for freq in freqs:
+    model_R = FRAResultsModelBuilder(path,freq,response_type='DR').model
+    model_I = FRAResultsModelBuilder(path,freq,response_type='DI').model
+    real_disp = model_R.Nodes['T2'].DY['H combo']
+    imag_disp = model_I.Nodes['T2'].DY['H combo']
+    disp.append(sqrt(real_disp**2 + imag_disp**2))
 
-for freq in load_freq:
-    solved_model = model_builder.get_solved_model_at_freq(freq, combo_name='COMB1',log=False)
-    print(round(freq,2) , " : ", round(1000 * solved_model.Nodes['N11'].DX['COMB1']))
+    real_react = model_R.Nodes['A'].RxnFZ['H combo']
+    imag_react = model_I.Nodes['A'].RxnFZ['H combo']
+
+    react.append(sqrt(real_react**2 + imag_react**2))
 
 
-"""from PyNite.Visualization import render_model
+import matplotlib.pyplot as plt
+plt.plot(freqs,react)
+plt.show()
+
+"""
+solved_model = THAResultsModelBuilder(path,1,response_type='D').model
+from PyNite.Visualization import render_model
 render_model(model = solved_model,
              render_loads=False,
              annotation_size=0.05,
-             deformed_shape=False,
-             deformed_scale=30,
-             combo_name='COMB1')"""
+             deformed_shape=True,
+             deformed_scale=3,
+             combo_name='T combo') """
 
 
 

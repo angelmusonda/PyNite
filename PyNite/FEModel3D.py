@@ -3355,6 +3355,9 @@ class FEModel3D():
             print('- Analysis complete')
             print('')
 
+        # Save the load combination under which the results can be viewed
+        self.FRA_combo_name = harmonic_combo
+
         # Flag the model as solved
         self.DynamicSolution['Harmonic'] = True
 
@@ -3686,6 +3689,9 @@ class FEModel3D():
         original_load_combo = copy.deepcopy(self.LoadCombos)
         t = 0
         for i in range(total_steps):
+            if log:
+                Analysis.update_progress(i,total_steps-1,'- Generating loading history')
+
             # Check if a load combination has been given
             if combo_name != None:
                 # For each load case in the load combination
@@ -3713,13 +3719,13 @@ class FEModel3D():
                     self.LoadCombos[combo_name].factors[case_name] = scaler * current_factor
 
                 # For this time t, the load combination has been edited to reflect the loading situation
-                # at this point in time. Hence the fixed end reactions and nodal loads can be calculated
+                # at this point in time. Hence, the fixed end reactions and nodal loads can be calculated
                 # for this point in time
 
                 # Below is the total load vector
                 F_total[:,i] = self.P(combo_name)[:,0] - self.FER(combo_name)[:,0]
 
-                # The load vector corresponding to the unconstrained dofs
+                # And below is the load vector corresponding to the unconstrained dofs
                 F_sub = self._partition(F_total[:,i].reshape(total_dof,1),D1_indices,D2_indices)[0]
                 F[:,i] = F_sub[:,0]
 
@@ -3768,7 +3774,6 @@ class FEModel3D():
             # Hence the contribution of prescribed velocities to the forcing functions is not consindered
             F[:,i] -= K12 @ D2[:,i] + M12 @ A2[:,i]
 
-
             # Update the time
             t += step_size
 
@@ -3805,6 +3810,7 @@ class FEModel3D():
 
         # Run the analysis
         if log:
+            print('')
             print('+-------------------------+')
             print('| Analyzing: Time History |')
             print('+-------------------------+')
@@ -3912,7 +3918,7 @@ class FEModel3D():
         # Calculate reactions
         # The damping models "rayleigh" and "modal" do not offer methods for specifying the complete
         # damping matrix. As a result, the reaction forces are solely computed based on elastic and
-        # inertial forces. I am currently conducting research on this matter to determine the appropriate
+        # inertial forces. I am still researching on this matter to determine the appropriate
         # approach for addressing it.
         if sparse:
             R = M_total.tocsr() @ self._ACCELERATION_THA\
@@ -3957,6 +3963,9 @@ class FEModel3D():
             print('')
             print('Analysis Complete')
             print('')
+
+        # Save the load combination name under which the results can be viewed
+        self.THA_combo_name = combo_name
 
         # Flag the model as solved
         self.DynamicSolution['Time History'] = True

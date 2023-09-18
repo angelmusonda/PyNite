@@ -1,3 +1,5 @@
+import sys
+import time
 from math import isclose, ceil
 
 from numpy.lib.function_base import interp, gradient
@@ -1476,7 +1478,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     if sparse:
         for i in range(total_steps - 1):
             if log:
-                print('Analysing for t = ', current_time)
+                update_progress(i,total_steps-2,'- Analysis Progress')
 
             # Calculate the predictors
             dp = D[:, i] + tau * V[:, i] + tau ** 2 * (0.5 - beta) * A[:, i]
@@ -1527,8 +1529,13 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
 
     return TIME, D, V, A
 
-
-
+def update_progress(step, total, process_name):
+    progress = int(100 * step / total)
+    bar_length = 50
+    progress_bar = '=' * int(bar_length * progress / 100)
+    sys.stdout.write(f'\r{process_name}: [{progress_bar: <{bar_length}}] {progress:3}%')
+    sys.stdout.flush()
+    time.sleep(1e-15)
 
 
 

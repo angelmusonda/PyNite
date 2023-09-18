@@ -48,15 +48,16 @@ for node in model.Nodes.values():
 model.def_support('A',support_DY=True, support_DZ=True, support_RZ=True,support_DX=True)
 model.def_support('C',support_DZ=True, support_RY=True, support_DX=True)
 
-model.add_node_load('C','FY',3000, case='H')
+model.add_node_load('C','FY',3000, case='HL')
+model.add_node_load('C','FY',100E3, case='TL')
 weight = 9.81 * rho * A
 model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
 model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
 
 
-model.add_load_combo('COMB1',{'H':1})
-
-model.def_load_profile('Case 1', [0,0.01],[1,1])
+model.add_load_combo('H combo',{'HL':1})
+model.add_load_combo('T combo',{'TL':1})
+model.def_load_profile('TL', [0,0.01],[1,1])
 
 
 
@@ -100,14 +101,13 @@ model.analyze_modal(num_modes=5,sparse=True)
 #print(model.MASS_PARTICIPATION_PERCENTAGES())
 damping = dict(constant_modal_damping = 0.02)
 
-print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 40, f2=150,f_div=1000,sparse=True,
-                       damping_options=damping))
-"""model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
-                                            combo_name='COMB1',
-                                            step_size=0.005,
-                                            response_duration=30,
-                                            damping_options=damping,
-                                            log=False, sparse=True)"""
+model.analyze_harmonic(harmonic_combo='H combo',f1 = 40, f2=150,f_div=1000,sparse=True,
+                       damping_options=damping)
+model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
+                                            combo_name='T combo',
+                                            step_size=0.0001,
+                                            response_duration=0.1,
+                                            log=True, sparse=True)
 #print(model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
@@ -132,15 +132,20 @@ plt.title('Simple Line Plot')
 
 
 
-print(model.REACTIONS_REAL()[:,0])
+#print(model.REACTIONS_REAL()[:,0])
 # Show the plot
-plt.show()
+#plt.show()
 
-"""
+import pickle
+with open('model.pickle', 'wb') as file:
+    # Serialize and save the object to the file
+    pickle.dump(model, file)
+
+""""
 from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
              render_loads=True,
              annotation_size=0.05,
-             combo_name='Combo 1') """
+             combo_name='TH combo')"""
