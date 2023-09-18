@@ -136,13 +136,13 @@ frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of
 import numpy as np
 time = [0,1,5,10]
 profile = [0,-1,1,0.5]
-frame.define_load_profile('N',time, profile)
-frame.define_load_profile('Pressure',time=[0,1,10], profile=[0,1,1])
+frame.def_load_profile('N',time, profile)
+frame.def_load_profile('Pressure',time=[0,1,10], profile=[0,1,1])
+#frame.def_node_disp('N11','DY',0.01)
 
-
-print(frame.analyze_linear_time_history_newmark_modal(d0 = None, v0 = None,load_combo='COMB1',AgX=None, AgY=None, AgZ=None,
-                                                      step_size=0.1, response_duration=1, newmark_beta=0.25,
-                                                      newmark_gamma=0.5, damping_options=damping, log=False))
+print(frame.analyze_linear_time_history_newmark_beta(d0 = None, v0 = None,combo_name='COMB1',AgX=None, AgY=None, AgZ=None,
+                                                      step_size=0.01, response_duration=1, newmark_beta=0.25,
+                                                      newmark_gamma=0.5, log=False))
 
 
 

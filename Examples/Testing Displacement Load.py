@@ -1,9 +1,12 @@
 import numpy
+import scipy.interpolate
+from scipy.interpolate import interp1d
 
 from PyNite import FEModel3D
 model = FEModel3D()
 node_num = 1;
-from numpy import linspace, sqrt
+from numpy import linspace, sqrt, pi, sin
+
 
 z = linspace(0.3,2.7,8)
 for i in z:
@@ -48,15 +51,15 @@ for node in model.Nodes.values():
 model.def_support('A',support_DY=True, support_DZ=True, support_RZ=True,support_DX=True)
 model.def_support('C',support_DZ=True, support_RY=True, support_DX=True)
 
-model.add_node_load('C','FY',3000, case='H')
+model.add_node_load('C','FY',3000, case='P')
 weight = 9.81 * rho * A
 model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
 model.add_member_dist_load('AB', 'FZ',weight,weight,case='W')
 
 
-model.add_load_combo('COMB1',{'H':1})
+model.add_load_combo('COMB1',{'P':1})
 
-model.def_load_profile('Case 1', [0,0.01],[1,1])
+model.def_load_profile('P', [0,1],[0,1])
 
 
 
@@ -94,36 +97,37 @@ values = 9.81 * numpy.array(values)
 
 # Create a 2D array with 'values' in the first row and 'time' in the second row
 ground_acceleration = numpy.vstack((time, values))
-#model.def_node_disp('C','DY',0.02)
-model.analyze_modal(num_modes=5,sparse=True)
+
+model.analyze_modal(num_modes=20,sparse=True)
 
 #print(model.MASS_PARTICIPATION_PERCENTAGES())
 damping = dict(constant_modal_damping = 0.02)
-
-print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 40, f2=150,f_div=1000,sparse=True,
-                       damping_options=damping))
-"""model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
-                                            combo_name='COMB1',
-                                            step_size=0.005,
-                                            response_duration=30,
-                                            damping_options=damping,
-                                            log=False, sparse=True)"""
+"""print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 50, f2=150,f_div=1000,sparse=True,
+                       damping_options=damping))"""
+"""
+model.def_node_disp('T2','DY',0.2)
+model.def_disp_profile('T2','DY',[0,0.1,1],[1,1,1])
+"""
+print(model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
+                                                      combo_name='COMB1',
+                                            step_size=0.5,
+                                            response_duration=1,
+                                            log=False, sparse=True))
 #print(model.NATURAL_FREQUENCIES())
-
+"""
 import matplotlib.pyplot as plt
 
 # Sample data
 #x = model.TIME_THA()
 #dof = model.Nodes['T'].ID * 6 + 3
-#dof2 = model.Nodes['T2'].ID * 6 + 0
-dof2 = model.Nodes['A'].ID * 6 + 2
+dof2 = model.Nodes['T2'].ID * 6 + 1
 #y = model.DISPLACEMENT_THA()[dof2,:]
 # Create a line plot
 #plt.plot(x, y)
 
 x2 = model.LoadFrequencies
-y2 = sqrt(model.REACTIONS_REAL()[dof2,:]**2 + model.REACTIONS_IMAGINARY()[dof2,:]**2)
-#y2 = sqrt(model.VELOCITY_REAL()[dof2,:]**2 + model.VELOCITY_IMAGINARY()[dof2,:]**2)
+y2 = sqrt(model.DISPLACEMENT_REAL()[dof2,:]**2 + model.DISPLACEMENT_IMAGINARY()[dof2,:]**2)
+
 plt.plot(x2,y2)
 # Add labels and a title
 plt.xlabel('X-axis')
@@ -132,15 +136,18 @@ plt.title('Simple Line Plot')
 
 
 
-print(model.REACTIONS_REAL()[:,0])
+#print(model.NATURAL_FREQUENCIES())
 # Show the plot
-plt.show()
+plt.show() """
 
 """
 from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
-             render_loads=True,
+             render_loads=False,
              annotation_size=0.05,
-             combo_name='Combo 1') """
+             combo_name='Combo 1')
+"""
+
+

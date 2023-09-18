@@ -4,13 +4,16 @@ import warnings
 import copy
 from math import isclose, ceil
 
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag, \
+    vstack, diag, hstack
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 from numpy.linalg import solve
+from scipy.linalg import inv
 from scipy.sparse.linalg import eigs, eigsh
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.interpolate import CubicSpline
 
+from PyNite.DisplacementProfile import DisplacementProfile
 from PyNite.Node3D import Node3D
 from PyNite.Material import Material
 from PyNite.PhysMember import PhysMember
@@ -73,15 +76,20 @@ class FEModel3D():
         self._DISPLACEMENT_IMAGINARY = None  # A matrix of the model's imaginary part of the displacement for each load frequency
         self._VELOCITY_IMAGINARY = None  # A matrix of the model's imaginary part of the velocity for each load frequency
         self._ACCELERATION_IMAGINARY = None  # A matrix of the model's imaginary part of the acceleration for each load frequency
+        self._REACTIONS_REAL = None # A matrix real part of reactions for the model solved using harmonic analysis for all load frequencies
+        self._REACTIONS_IMAGINARY = None # A matrix of the imaginary part of reactions for the model solved using harmonic analysis for all load frequencies
         self.MassCases = {str: []}  # A dictionary of load cases to be considered as mass cases
         self.MassCases.pop(str)
         self.LoadProfiles = {str: LoadProfile}  # A dictionary of the model's dynamic load profiles
         self.LoadProfiles.pop(str)
+        self.DisplacementProfiles = {str: DisplacementProfile}  # A dictionary of the model's dynamic displacement profiles
+        self.DisplacementProfiles.pop(str)
         self._DISPLACEMENT_THA = None  # A matrix to store the global time history displacements
         self._VELOCITY_THA = None  # A matrix to store the global time history velocities
         self._ACCELERATION_THA = None  # A matrix to store the global time history accelerations
         self._TIME_THA = None  # A vector to store the time over which the time history analysis has been conducted
-
+        self.F_TOTAL = None # A matrix to store the global dynamic total force used for calculating reactions
+        self._REACTIONS_THA = None  # A matrix to store the reactions of the model for the entire time history
         self.LoadFrequencies = []  # A list to store the calculated load frequencies
         self.solution = None  # Indicates the solution type for the latest run of the model
         self.DynamicSolution = {
@@ -1355,11 +1363,48 @@ class FEModel3D():
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def define_load_profile(self, case, time, profile):
+    def def_load_profile(self, case, time, profile):
+        """
+            Define a load profile for a specific load case.
+
+            :param case: The name or identifier of the load case.
+            :type case: str
+            :param time: A list of time values associated with the load profile.
+            :type time: list[float]
+            :param profile: A list of load values corresponding to the time values.
+            :type profile: list[float]
+
+            :raises ParameterIncompatibilityError: If the lengths of 'time' and 'profile' lists are not the same.
+
+            This method creates a LoadProfile object for the specified load case and associates it with the given time and profile data.
+            """
         if len(time) != len(profile):
             raise ParameterIncompatibilityError('Time and Profile lists should have the same length')
         self.LoadProfiles[case] = LoadProfile(load_case_name=case, time=time, profile=profile)
 
+    def def_disp_profile(self, node, direction, time, profile):
+        """
+            Define a displacement profile for a specific node and direction.
+
+            :param node: The node or point at which the displacement is measured.
+            :type node: str
+            :param direction: The direction of the displacement ('DX', 'DY', 'DZ', 'RX', 'RY', 'RZ').
+            :type direction: str
+            :param time: A list of time values associated with the displacement profile.
+            :type time: list[float]
+            :param profile: A list of displacement values corresponding to the time values.
+            :type profile: list[float]
+
+            :raises ParameterIncompatibilityError: If the lengths of 'time' and 'profile' lists are not the same.
+            :raises ValueError: If 'direction' is not one of ('DX', 'DY', 'DZ', 'RX', 'RY', 'RZ').
+
+            This method creates a DisplacementProfile object for the specified node and direction and associates it with the given time and profile data.
+            """
+        if len(time) != len(profile):
+            raise ParameterIncompatibilityError('Time and Profile lists should have the same length')
+        if direction not in ('DX', 'DY', 'DZ', 'RX', 'RY', 'RZ'):
+            raise ValueError(f"Direction must be 'DX', 'DY', 'DZ', 'RX', 'RY', or 'RZ'. {direction} was given.")
+        self.DisplacementProfiles[node] = DisplacementProfile(node=node, direction= direction,time=time, profile=profile)
         
     def K(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
         """Returns the model's global stiffness matrix. The stiffness matrix will be returned in
@@ -2912,39 +2957,36 @@ class FEModel3D():
 
 
 
-    def analyze_harmonic(self, harmonic_combo, f1, f2, f_div,
+    def analyze_harmonic(self, f1, f2, f_div,harmonic_combo = None,
                         log=False, sparse=True, type_of_mass_matrix = 'consistent',
                          damping_options = dict()):
         """
-        Performs harmonic analysis for a given harmonic load combination and load frequency range. This analysis assumes that a modal analysis has been performed prior to calling this function.
+          Conducts harmonic analysis for a specified harmonic load combination within a defined load frequency range. This analysis presupposes that a modal analysis has been conducted beforehand.
 
-        :param harmonic_combo: The harmonic load combination.
-        :type harmonic_combo: LoadCombo
-        :param f1: The lowest forcing frequency to consider.
-        :type f1: float
-        :param f2: The highest forcing frequency to consider.
-        :type f2: float
-        :param f_div: The number of frequencies in the range to compute for.
-        :type f_div: int
-        :param log: If True, print analysis log to the console. Default is False.
-        :type log: bool, optional
-        :param sparse: Indicates whether the sparse matrix solver should be used. Default is True.
-                       Sparse solvers can offer faster solutions for matrices with many zero terms.
-        :type sparse: bool, optional
-        :param type_of_mass_matrix: The type of element mass matrix to use in the analysis. Default is 'consistent'.
-        :type type_of_mass_matrix: str, optional
-        :param damping_options: Dictionary containing damping options (optional).
-            \nAllowed keywords in damping_options:
-            - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
-            - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
-            - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
-            - 'first_mode_damping' (float): Damping ratio for the first mode.
-            - 'highest_mode_damping' (float): Damping ratio for the highest mode.
-            - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
-        :type damping_options: dict, optional
-        :raises Exception: Occurs when a singular stiffness matrix is found, indicating an unstable structure has been modeled.
-        :raises ResultsNotFoundError: Raised if modal results are not available, as harmonic analysis requires modal results.
-        """
+          In this analysis, prescribed displacements are treated as amplitudes that share the same frequency as the applied forces. Consequently, the analysis can also be executed exclusively for prescribed displacements, effectively using them as the sole source of excitation.
+          :param f1: The lowest forcing frequency to consider.
+          :type f1: float
+          :param f2: The highest forcing frequency to consider.
+          :type f2: float
+          :param f_div: The number of frequencies in the range to compute for.
+          :type f_div: int
+          :param harmonic_combo: The harmonic load combination. (Optional)
+          :type harmonic_combo: str
+          :param log: If True, print analysis log to the console. Default is False.
+          :type log: bool, optional
+          :param sparse: Indicates whether the sparse matrix solver should be used. Default is True.
+                         Sparse solvers can offer faster solutions for matrices with many zero terms.
+          :type sparse: bool, optional
+          :param type_of_mass_matrix: The type of element mass matrix to use in the analysis. Default is 'consistent'.
+          :type type_of_mass_matrix: str, optional
+          :param damping_options: Dictionary containing damping options (optional).
+          :type damping_options: dict, optional
+
+          :raises Exception: Occurs when a singular stiffness matrix is found, indicating an unstable structure has been modeled.
+          :raises ResultsNotFoundError: Raised if modal results are not available, as harmonic analysis requires modal results.
+          :raises ValueError: Raised for invalid input values, such as negative frequencies or invalid direction values.
+          :raises DynamicLoadNotDefinedError: Raised if no load combination or prescribed displacement is provided.
+          """
 
         # Check if modal results are available
         if self.DynamicSolution['Modal'] == False:
@@ -2957,6 +2999,26 @@ class FEModel3D():
 
         if f2 < f1:
             raise ValueError("f2 must be greater than f1")
+
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
+
+        # Convert D2 from a list to a vector
+        D2 = atleast_2d(D2)
+
+        # Check if the load combo name is among the defined load combos
+        if harmonic_combo != None and harmonic_combo not in self.LoadCombos.keys():
+            raise ValueError("'" + harmonic_combo + "' is not among the defined load combinations")
+
+        # Atleast a load combination should be provided or a harmonic displacement should be prescribed
+        if harmonic_combo == None:
+            if any(D2) == False:
+                raise DynamicLoadNotDefinedError('Provide the name of the dynamic load combination or at least prescribe a displacement at one node')
+
+        # If only prescribed displacement has been provided, add default the load combination 'Combo 1'
+        if harmonic_combo==None:
+            harmonic_combo = 'Combo 1'
+            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':0}, combo_tags='FRA')
 
 
         # We can now begin the harmonic analysis
@@ -2973,26 +3035,19 @@ class FEModel3D():
         # Prepare model
         Analysis._prepare_model(self)
 
-        # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
-
-        # Convert D2 from a list to a vector
-        D2 = atleast_2d(D2)
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
         if sparse == True:
-            # We will not check for stability of the mass matrix. check_stability will be set to False
-            # This is because for the shell elements, the mass matrix has zeroes
-            # on the rotation about z-axis DOFs
-            # Only the stiffness matrix is modified to account for this 'drilling' effect
-            # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
-            # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
             K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
-            M11 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
-                                                 D2_indices)[0]
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
+                                                 D2_indices)
+            K_total = self.K(harmonic_combo, log, False, sparse).tolil()
+            M_total = self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil()
         else:
             K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
-            M11 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)[0]
+            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
+            K_total = self.K(harmonic_combo, log, False, sparse).tolil()
+            M_total = self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix)
 
         # Get the mass normalised mode shape matrix
         Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
@@ -3002,6 +3057,9 @@ class FEModel3D():
 
         # Get the partitioned global nodal force vector
         P1, P2 = self._partition(self.P(harmonic_combo), D1_indices, D2_indices)
+
+        # Get the total force vector to be used for calculation of reactions
+        F_total = self.P(harmonic_combo) - self.FER(harmonic_combo)
 
         # Calculate the normalised force vector
         FV_n = Z.T @ (P1-FER1 - K12 @ D2)
@@ -3035,7 +3093,6 @@ class FEModel3D():
 
         if 'damping_in_every_mode' in damping_options:
             damping_ratios_in_every_mode = damping_options['damping_in_every_mode']
-
 
         # Build the modal damping matrix
         # Initialise a one dimensional array
@@ -3124,84 +3181,174 @@ class FEModel3D():
         # Calculate the modal coordinates for each forcing frequency
         try:
             k = 0  # Index for each displacement vector
-            # Initialise vector to hold the modal response in complex notation
-            Q = zeros(len(FV_n))+zeros(len(FV_n))*1j
+            # Initialise vectors to hold the modal response in complex notation
+            Q = zeros(len(FV_n), dtype=complex) # Displacement
+            Q_dot = zeros(len(FV_n), dtype=complex)  # Velocity
+            Q_dot_dot = zeros(len(FV_n), dtype=complex)  # Acceleration
+
+            # Loop through the load frequencies
             for omega in omega_list:
+                # Add the effect of the prescribed acceleration [- omega**2 * Z.T @ M12 @ D2]
+                # We should subtract the above from the force vector, hence the addition below
+                # Not that the effect of prescribed velocity is not considered since C12 is not known
+                FV_temp =  FV_n[:,0].reshape(len(FV_n),1) + omega**2 * Z.T @ M12 @ D2
                 for n in range(FV_n.shape[0]):
                     # Calculate the amplitude
-                    q = FV_n[n, 0] * 1 / sqrt((w[n] ** 2 - omega ** 2) ** 2 + (omega ** 2) * (C_n[n]) ** 2)
+                    q = FV_temp[n, 0] * 1 / sqrt((w[n] ** 2 - omega ** 2) ** 2 + (omega ** 2) * (C_n[n]) ** 2)
 
                     # Calculate the phase
                     phase = arctan2(C_n[n]*omega, w[n]**2-omega**2)
 
                     # Calculate the response in complex notation
                     Q[n] = q*(cos(phase)+1j*sin(phase))
+                    Q_dot[n] = omega * q * (cos(phase-pi/2)+1j*sin(phase-pi/2))
+                    Q_dot_dot[n] = -(omega**2) * Q[n]
 
-                # Calculate the magnitude of the physical displacements
-                D1 =  (Z @ Q)
+                # Calculate the physical responses
+                D1 =  Z @ Q
+                V1 = Z @ Q_dot
+                A1 = Z @ Q_dot_dot
+
+                # Make sure the dimensions are correct
                 D1 = D1.reshape(len(D1),1)
+                V1 = V1.reshape(len(V1), 1)
+                A1 = A1.reshape(len(A1), 1)
 
-                # Form the global displacement vector, D, from D1 and D2
+                V2 = omega * D2 * 1j * sin(-pi/2)
+                A2 = -(omega**2) * D2
+
+                # Form the global displacement, velocity and acceleration vectors
                 D = zeros((len(self.Nodes) * 6, 1), dtype=complex)
+                V = zeros((len(self.Nodes) * 6, 1), dtype=complex)
+                A = zeros((len(self.Nodes) * 6, 1), dtype=complex)
 
                 for node in self.Nodes.values():
 
                     if D2_indices.count(node.ID * 6 + 0) == 1:
                         D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
+                        V.itemset((node.ID * 6 + 0, 0), V2[D2_indices.index(node.ID * 6 + 0), 0])
+                        A.itemset((node.ID * 6 + 0, 0), A2[D2_indices.index(node.ID * 6 + 0), 0])
                     else:
                         D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
+                        V.itemset((node.ID * 6 + 0, 0), V1[D1_indices.index(node.ID * 6 + 0), 0])
+                        A.itemset((node.ID * 6 + 0, 0), A1[D1_indices.index(node.ID * 6 + 0), 0])
 
                     if D2_indices.count(node.ID * 6 + 1) == 1:
                         D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
+                        V.itemset((node.ID * 6 + 1, 0), V2[D2_indices.index(node.ID * 6 + 1), 0])
+                        A.itemset((node.ID * 6 + 1, 0), A2[D2_indices.index(node.ID * 6 + 1), 0])
                     else:
                         D.itemset((node.ID * 6 + 1, 0), D1[D1_indices.index(node.ID * 6 + 1), 0])
-
+                        V.itemset((node.ID * 6 + 1, 0), V1[D1_indices.index(node.ID * 6 + 1), 0])
+                        A.itemset((node.ID * 6 + 1, 0), A1[D1_indices.index(node.ID * 6 + 1), 0])
                     if D2_indices.count(node.ID * 6 + 2) == 1:
                         D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
+                        V.itemset((node.ID * 6 + 2, 0), V2[D2_indices.index(node.ID * 6 + 2), 0])
+                        A.itemset((node.ID * 6 + 2, 0), A2[D2_indices.index(node.ID * 6 + 2), 0])
                     else:
                         D.itemset((node.ID * 6 + 2, 0), D1[D1_indices.index(node.ID * 6 + 2), 0])
+                        V.itemset((node.ID * 6 + 2, 0), V1[D1_indices.index(node.ID * 6 + 2), 0])
+                        A.itemset((node.ID * 6 + 2, 0), A1[D1_indices.index(node.ID * 6 + 2), 0])
 
                     if D2_indices.count(node.ID * 6 + 3) == 1:
                         D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
+                        V.itemset((node.ID * 6 + 3, 0), V2[D2_indices.index(node.ID * 6 + 3), 0])
+                        A.itemset((node.ID * 6 + 3, 0), A2[D2_indices.index(node.ID * 6 + 3), 0])
                     else:
                         D.itemset((node.ID * 6 + 3, 0), D1[D1_indices.index(node.ID * 6 + 3), 0])
+                        V.itemset((node.ID * 6 + 3, 0), V1[D1_indices.index(node.ID * 6 + 3), 0])
+                        A.itemset((node.ID * 6 + 3, 0), A1[D1_indices.index(node.ID * 6 + 3), 0])
 
                     if D2_indices.count(node.ID * 6 + 4) == 1:
                         D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
+                        V.itemset((node.ID * 6 + 4, 0), V2[D2_indices.index(node.ID * 6 + 4), 0])
+                        A.itemset((node.ID * 6 + 4, 0), A2[D2_indices.index(node.ID * 6 + 4), 0])
                     else:
                         D.itemset((node.ID * 6 + 4, 0), D1[D1_indices.index(node.ID * 6 + 4), 0])
+                        V.itemset((node.ID * 6 + 4, 0), V1[D1_indices.index(node.ID * 6 + 4), 0])
+                        A.itemset((node.ID * 6 + 4, 0), A1[D1_indices.index(node.ID * 6 + 4), 0])
 
                     if D2_indices.count(node.ID * 6 + 5) == 1:
                         D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
+                        V.itemset((node.ID * 6 + 5, 0), V2[D2_indices.index(node.ID * 6 + 5), 0])
+                        A.itemset((node.ID * 6 + 5, 0), A2[D2_indices.index(node.ID * 6 + 5), 0])
                     else:
                         D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
+                        V.itemset((node.ID * 6 + 5, 0), V1[D1_indices.index(node.ID * 6 + 5), 0])
+                        A.itemset((node.ID * 6 + 5, 0), A1[D1_indices.index(node.ID * 6 + 5), 0])
 
                 # Save the all the maximum global displacement vectors for each load frequency
 
                 D_temp[:, k] = D[:, 0]
-                V_temp[:, k] = omega*D[:, 0]
-                A_temp[:, k] = omega**2 *D[:, 0]
+                V_temp[:, k] = V[:, 0]
+                A_temp[:, k] = A[:, 0]
                 k += 1
-            self._DISPLACEMENT_REAL= real(D_temp)
+            self._DISPLACEMENT_REAL = real(D_temp)
             self._DISPLACEMENT_IMAGINARY = imag(D_temp)
             self._VELOCITY_REAL = real(V_temp)
             self._VELOCITY_IMAGINARY = imag(V_temp)
             self._ACCELERATION_REAL = real(A_temp)
             self._ACCELERATION_IMAGINARY = imag(A_temp)
 
-            # Put the displacement amplitudes for the first load frequency into each node
-            for node in self.Nodes.values():
-                node.DX[harmonic_combo] = D_temp[node.ID * 6 + 0, 0]
-                node.DY[harmonic_combo] = D_temp[node.ID * 6 + 1, 0]
-                node.DZ[harmonic_combo] = D_temp[node.ID * 6 + 2, 0]
-                node.RX[harmonic_combo] = D_temp[node.ID * 6 + 3, 0]
-                node.RY[harmonic_combo] = D_temp[node.ID * 6 + 4, 0]
-                node.RZ[harmonic_combo] = D_temp[node.ID * 6 + 5, 0]
-
-
         except:
             raise Exception("'The stiffness matrix is singular, which implies rigid body motion."
                             "The structure is unstable. Aborting analysis.")
+
+        # Put the displacements for the first load frequency into each node
+        for node in self.Nodes.values():
+            node.DX[harmonic_combo] = real(D_temp[node.ID * 6 + 0, 0])
+            node.DY[harmonic_combo] = real(D_temp[node.ID * 6 + 1, 0])
+            node.DZ[harmonic_combo] = real(D_temp[node.ID * 6 + 2, 0])
+            node.RX[harmonic_combo] = real(D_temp[node.ID * 6 + 3, 0])
+            node.RY[harmonic_combo] = real(D_temp[node.ID * 6 + 4, 0])
+            node.RZ[harmonic_combo] = real(D_temp[node.ID * 6 + 5, 0])
+
+        # Calculate reactions
+        # The damping models "rayleigh" and "modal" do not offer methods for specifying the complete
+        # damping matrix. As a result, the reaction forces are solely computed based on elastic and
+        # inertial forces. I am still researching on this matter to determine the appropriate
+        # approach for addressing this.
+
+        if sparse:
+            R =  M_total.tocsr() @ (self._ACCELERATION_REAL + 1j * self._ACCELERATION_IMAGINARY) \
+                 + K_total.tocsr() @ (self._DISPLACEMENT_REAL + 1j * self._DISPLACEMENT_IMAGINARY) \
+                 - F_total
+
+        else:
+            R = M_total @ (self._ACCELERATION_REAL + 1j * self._ACCELERATION_IMAGINARY) \
+                + K_total @ (self._DISPLACEMENT_REAL + 1j * self._DISPLACEMENT_IMAGINARY) \
+                - F_total
+
+        # Save the reactions
+        self._REACTIONS_REAL = real(R)
+        self._REACTIONS_IMAGINARY = imag(R)
+
+        # Put the reactions at the last time step into the constrained nodes
+        for node in self.Nodes.values():
+            if node.support_DX == True:
+                node.RxnFX[harmonic_combo] = R[node.ID * 6 + 0, -1]
+            else:
+                node.RxnFX[harmonic_combo] = 0.0
+            if node.support_DY == True:
+                node.RxnFY[harmonic_combo] = R[node.ID * 6 + 1, -1]
+            else:
+                node.RxnFY[harmonic_combo] = 0.0
+            if node.support_DZ == True:
+                node.RxnFZ[harmonic_combo] = R[node.ID * 6 + 2, -1]
+            else:
+                node.RxnFZ[harmonic_combo] = 0.0
+            if node.support_RX == True:
+                node.RxnMX[harmonic_combo] = R[node.ID * 6 + 3, -1]
+            else:
+                node.RxnMX[harmonic_combo] = 0.0
+            if node.support_RY == True:
+                node.RxnMY[harmonic_combo] = R[node.ID * 6 + 4, -1]
+            else:
+                node.RxnMY[harmonic_combo] = 0.0
+            if node.support_RZ == True:
+                node.RxnMZ[harmonic_combo] = R[node.ID * 6 + 5, -1]
+            else:
+                node.RxnMZ[harmonic_combo] = 0.0
 
         if log:
             print('')
@@ -3314,20 +3461,26 @@ class FEModel3D():
                 if damping_key_word not in accepted_damping_key_words:
                     raise DampingOptionsKeyWordError
 
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
+
         # Check if the dynamic load combination or at least one seismic ground acceleration has been given
+        # Or at least one nonzero displacement at a node
         if combo_name == None and AgX is None and AgY is None and AgZ is None:
-            raise DynamicLoadNotDefinedError
+            if any(D2_for_check) == False:
+                raise DynamicLoadNotDefinedError
 
         # If only a seismic load has been provided, add default the load combination 'Combo 1'
+        # Define its profile too
         if combo_name==None:
             combo_name = 'Combo 1'
             self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':1}, combo_tags='THS')
+            self.LoadProfiles['Case 1'] = LoadProfile(load_case_name='Case 1',time = [0,response_duration],profile=[0,0])
 
         # Add tags to the load combinations that do not have tags. We will use this to filter results
         for combo in self.LoadCombos.values():
             if combo.combo_tags == None:
                 combo.combo_tags = 'unknown_type'
-
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -3338,10 +3491,44 @@ class FEModel3D():
             if case not in load_profiles:
                 raise DefinitionNotFoundError('Profile for load case '+str(case)+' has not been defined')
 
+        # Extract the Rayleigh damping coefficients
+        if analysis_method=='direct':
+            if 'r_alpha' in damping_options:
+                r_alpha = damping_options['r_alpha']
+            else:
+                r_alpha = 0
+
+            if 'r_beta' in damping_options:
+                r_beta = damping_options['r_beta']
+            else:
+                r_beta = 0
+
         if log:
             print('Preparing parameters for time history analysis')
 
         # Edit the load profiles so that they are defined for the entire duration of analysis
+        for disp_profile in self.DisplacementProfiles.values():
+            node = disp_profile.node
+            dir = disp_profile.direction
+            time : list = disp_profile.time
+            profile: list = disp_profile.profile
+
+            # Check if the profile has not been defined for the entire duration of analysis
+            if time[-1] < response_duration:
+
+                # We want to bring the displacement profile to zero immediately after the last given value
+                # We don't want to define two values at the same instance of time
+                # It can cause problems during interpolation
+                # So we will begin our definition slightly later
+                t = 1.0001 * time[-1]
+                if t < response_duration:
+                    time.extend([t,response_duration])
+                    profile.extend([0,0])
+
+                # Redefine the profile
+                self.LoadProfiles[node] = DisplacementProfile(node,dir,time,profile)
+
+        # Edit the displacement profiles so that they are defined for the entire duration of the response
         for load_profile in self.LoadProfiles.values():
             case = load_profile.load_case_name
             time : list = load_profile.time
@@ -3361,7 +3548,6 @@ class FEModel3D():
 
                 # Redefine the profile
                 self.LoadProfiles[case] = LoadProfile(case,time,profile)
-
 
         # Extend the AgX seismic input definition too if it is less than the response duration
         if AgX is not None:
@@ -3449,30 +3635,37 @@ class FEModel3D():
         # Prepare the model
         Analysis._prepare_model(self)
 
-        # Get the auxiliary list used to determine how the matrices will be partitioned
-        D1_indices, D2_indices, D2 = Analysis._partition_D(self)
-
-        # Make sure D2 is a matrix in 2 dimensions
-        D2 = D2.reshape(len(D2), 1)
-
         # Get the partitioned matrices
         if sparse == True:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
+            K_total = self.K(combo_name, log, False, sparse).tolil()
+            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
         else:
             K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
             M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
+            K_total = self.K(combo_name, log, False, sparse)
+            M_total = self.M(combo_name, log, False, sparse, type_of_mass_matrix)
 
         # Initialise load vector for the entire analysis duration
         F = zeros((len(D1_indices), total_steps))
+
+        # Initialise second load vector. This will store the entire load vector which will be used for
+        # calculating the reactions
+        total_dof = len(D1_indices) + len(D2_indices)
+        F_total = zeros((total_dof, total_steps))
+
+        # Initialise D2, V2 and A2 for the entire analysis duration
+        D2 = zeros((len(D2_for_check),total_steps))
+        V2 = zeros((len(D2_for_check), total_steps))
+        A2 = zeros((len(D2_for_check), total_steps))
 
         # Build the influence vectors used to define the earthquake force
         # Influence vectors are used to select the degrees of freedom in
         # the model stimulated by the earthquake
 
-        total_dof = len(D1_indices)+len(D2_indices)
         i = 0
         influence_X = zeros((total_dof,1))
         influence_Y = zeros((total_dof,1))
@@ -3522,30 +3715,59 @@ class FEModel3D():
                 # For this time t, the load combination has been edited to reflect the loading situation
                 # at this point in time. Hence the fixed end reactions and nodal loads can be calculated
                 # for this point in time
-                FER1, FER2 = self._partition(self.FER(combo_name), D1_indices, D2_indices)
-                P1, P2 = self._partition(self.P(combo_name), D1_indices, D2_indices)
 
-                # Save the calculated nodal loads and fixed end reactions into the load vector
-                F[:,i] = P1[:,0] - FER1[:,0]
+                # Below is the total load vector
+                F_total[:,i] = self.P(combo_name)[:,0] - self.FER(combo_name)[:,0]
+
+                # The load vector corresponding to the unconstrained dofs
+                F_sub = self._partition(F_total[:,i].reshape(total_dof,1),D1_indices,D2_indices)[0]
+                F[:,i] = F_sub[:,0]
 
             # Add the seismic forces as well if the ground acceleration has been given
             # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
             if AgX is not None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
-                        * interp(t, AgX[0, :], AgX[1, :])
-                F[:,i] += AgX_F[0,:]
+                if sparse:
+                    AgX_F = -M_total.tocsr() @ influence_X * interp(t, AgX[0, :], AgX[1, :])
+                else:
+                    AgX_F = -M_total @ influence_X * interp(t, AgX[0, :], AgX[1, :])
+
+                F_total += AgX_F[0,:]
+                AgX_F_sub = self._partition(AgX_F,D1_indices,D2_indices)[0]
+                F[:,i] += AgX_F_sub[:,0]
 
             if AgY is not None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
-                         * interp(t, AgY[0, :], AgY[1, :])
-                F[:,i] += AgY_F[0,:]
+                if sparse:
+                    AgY_F = -M_total.tocsr() @ influence_Y * interp(t, AgY[0, :], AgY[1, :])
+                else:
+                    AgY_F = -M_total @ influence_Y * interp(t, AgY[0, :], AgY[1, :])
+
+                F_total += AgY_F[0,:]
+                AgY_F_sub = self._partition(AgY_F,D1_indices,D2_indices)[0]
+                F[:,i] += AgY_F_sub[:,0]
 
             if AgZ is not None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
-                         * interp(t, AgZ[0,:], AgZ[1,:])
-                F[:,i] += AgZ_F[0,:]
+                if sparse:
+                    AgZ_F = -M_total.tocsr() @ influence_Z * interp(t, AgZ[0, :], AgZ[1, :])
+                else:
+                    AgZ_F = -M_total.tocsr() @ influence_Z * interp(t, AgZ[0, :], AgZ[1, :])
+
+                F_total += AgZ_F[0,:]
+                AgZ_F_sub = self._partition(AgZ_F,D1_indices,D2_indices)[0]
+                F[:,i] += AgZ_F_sub[:,0]
+
+            # Generate the prescribed displacements, velocities and accelerations
+            D2_temp, V2_temp, A2_temp = Analysis._D2(self,time=t)
+            D2[:,i] = D2_temp[:,0]
+            V2[:,i] = V2_temp[:,0]
+            A2[:,i] = A2_temp[:,0]
+
+            # Add forces due to prescribed displacements, velocities and accelerations
+            # For the supported damping models, it's not possible to generate the full damping matrix
+            # Hence the contribution of prescribed velocities to the forcing functions is not consindered
+            F[:,i] -= K12 @ D2[:,i] + M12 @ A2[:,i]
+
 
             # Update the time
             t += step_size
@@ -3553,12 +3775,8 @@ class FEModel3D():
             # Restore the time load combination to the original one
             self.LoadCombos = copy.deepcopy(original_load_combo)
 
-        # Update force vector to include the effects of the constrained degrees of freedom
-        # In theory we also need to add -M12 @ A2 and -C12 @ V2.
-        # However, the constrained displacements don't really change in time for normal
-        # structural analysis
-        # Hence, the velocity and accelerations will be zero
-        F[:,:] -= K12 @ D2
+        # Save the total global force
+        self.F_TOTAL = F_total
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
@@ -3593,17 +3811,6 @@ class FEModel3D():
 
         try:
             if analysis_method == 'direct':
-                # Extract the Rayleigh damping coefficients
-                if 'r_alpha' in damping_options:
-                    r_alpha = damping_options['r_alpha']
-                else:
-                    r_alpha = 0
-
-                if 'r_beta' in damping_options:
-                    r_beta = damping_options['r_beta']
-                else:
-                    r_beta = 0
-
                 TIME, D1, V1, A1 = \
                      Analysis._transient_solver_linear_direct(K=K11, M=M11,d0=d0_phy,v0=v0_phy,
                                                               F0=F[:,0],F = F,step_size=step_size,
@@ -3632,60 +3839,56 @@ class FEModel3D():
         V = zeros((len(self.Nodes) * 6, total_steps))
         A = zeros((len(self.Nodes) * 6, total_steps))
 
-        # The accelerations and velocities for the constrained degrees of freedom will be zeros
-        V2 = zeros(D2.shape)
-        A2 = zeros(D2.shape)
-
         for node in self.Nodes.values():
-
             if D2_indices.count(node.ID * 6 + 0) == 1:
-                D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                V.itemset((node.ID * 6 + 0, 0), V2[D2_indices.index(node.ID * 6 + 0), 0])
-                A.itemset((node.ID * 6 + 0, 0), A2[D2_indices.index(node.ID * 6 + 0), 0])
+                D[node.ID * 6 + 0, :] = D2[D2_indices.index(node.ID * 6 + 0), :]
+                V[node.ID * 6 + 0, :] = V2[D2_indices.index(node.ID * 6 + 0), :]
+                A[node.ID * 6 + 0, :] = A2[D2_indices.index(node.ID * 6 + 0), :]
             else:
                 D[node.ID * 6 + 0, :] = D1[D1_indices.index(node.ID * 6 + 0), :]
                 V[node.ID * 6 + 0, :] = V1[D1_indices.index(node.ID * 6 + 0), :]
                 A[node.ID * 6 + 0, :] = A1[D1_indices.index(node.ID * 6 + 0), :]
             if D2_indices.count(node.ID * 6 + 1) == 1:
-                D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
-                V.itemset((node.ID * 6 + 1, 0), V2[D2_indices.index(node.ID * 6 + 1), 0])
-                A.itemset((node.ID * 6 + 1, 0), A2[D2_indices.index(node.ID * 6 + 1), 0])
+                D[node.ID * 6 + 1, :] = D2[D2_indices.index(node.ID * 6 + 1), :]
+                V[node.ID * 6 + 1, :] = V2[D2_indices.index(node.ID * 6 + 1), :]
+                A[node.ID * 6 + 1, :] = A2[D2_indices.index(node.ID * 6 + 1), :]
             else:
                 D[node.ID * 6 + 1, :] = D1[D1_indices.index(node.ID * 6 + 1), :]
                 V[node.ID * 6 + 1, :] = V1[D1_indices.index(node.ID * 6 + 1), :]
                 A[node.ID * 6 + 1, :] = A1[D1_indices.index(node.ID * 6 + 1), :]
 
             if D2_indices.count(node.ID * 6 + 2) == 1:
-                D.itemset((node.ID * 6 + 2, 0), D2[D2_indices.index(node.ID * 6 + 2), 0])
-                V.itemset((node.ID * 6 + 2, 0), V2[D2_indices.index(node.ID * 6 + 2), 0])
-                A.itemset((node.ID * 6 + 2, 0), A2[D2_indices.index(node.ID * 6 + 2), 0])
+                D[node.ID * 6 + 2, :] = D2[D2_indices.index(node.ID * 6 + 2), :]
+                V[node.ID * 6 + 2, :] = V2[D2_indices.index(node.ID * 6 + 2), :]
+                A[node.ID * 6 + 2, :] = A2[D2_indices.index(node.ID * 6 + 2), :]
             else:
                 D[node.ID * 6 + 2, :] = D1[D1_indices.index(node.ID * 6 + 2), :]
                 V[node.ID * 6 + 2, :] = V1[D1_indices.index(node.ID * 6 + 2), :]
                 A[node.ID * 6 + 2, :] = A1[D1_indices.index(node.ID * 6 + 2), :]
 
             if D2_indices.count(node.ID * 6 + 3) == 1:
-                D.itemset((node.ID * 6 + 3, 0), D2[D2_indices.index(node.ID * 6 + 3), 0])
-                V.itemset((node.ID * 6 + 3, 0), V2[D2_indices.index(node.ID * 6 + 3), 0])
-                A.itemset((node.ID * 6 + 3, 0), A2[D2_indices.index(node.ID * 6 + 3), 0])
+                D[node.ID * 6 + 3, :] = D2[D2_indices.index(node.ID * 6 + 3), :]
+                V[node.ID * 6 + 3, :] = V2[D2_indices.index(node.ID * 6 + 3), :]
+                A[node.ID * 6 + 3, :] = A2[D2_indices.index(node.ID * 6 + 3), :]
+
             else:
                 D[node.ID * 6 + 3, :] = D1[D1_indices.index(node.ID * 6 + 3), :]
                 V[node.ID * 6 + 3, :] = V1[D1_indices.index(node.ID * 6 + 3), :]
                 A[node.ID * 6 + 3, :] = A1[D1_indices.index(node.ID * 6 + 3), :]
 
             if D2_indices.count(node.ID * 6 + 4) == 1:
-                D.itemset((node.ID * 6 + 4, 0), D2[D2_indices.index(node.ID * 6 + 4), 0])
-                V.itemset((node.ID * 6 + 4, 0), V2[D2_indices.index(node.ID * 6 + 4), 0])
-                A.itemset((node.ID * 6 + 4, 0), A2[D2_indices.index(node.ID * 6 + 4), 0])
+                D[node.ID * 6 + 4, :] = D2[D2_indices.index(node.ID * 6 + 4), :]
+                V[node.ID * 6 + 4, :] = V2[D2_indices.index(node.ID * 6 + 4), :]
+                A[node.ID * 6 + 4, :] = A2[D2_indices.index(node.ID * 6 + 4), :]
             else:
                 D[node.ID * 6 + 4, :] = D1[D1_indices.index(node.ID * 6 + 4), :]
                 V[node.ID * 6 + 4, :] = V1[D1_indices.index(node.ID * 6 + 4), :]
                 A[node.ID * 6 + 4, :] = A1[D1_indices.index(node.ID * 6 + 4), :]
 
             if D2_indices.count(node.ID * 6 + 5) == 1:
-                D.itemset((node.ID * 6 + 5, 0), D2[D2_indices.index(node.ID * 6 + 5), 0])
-                V.itemset((node.ID * 6 + 5, 0), V2[D2_indices.index(node.ID * 6 + 5), 0])
-                A.itemset((node.ID * 6 + 5, 0), A2[D2_indices.index(node.ID * 6 + 5), 0])
+                D[node.ID * 6 + 5, :] = D2[D2_indices.index(node.ID * 6 + 5), :]
+                V[node.ID * 6 + 5, :] = V2[D2_indices.index(node.ID * 6 + 5), :]
+                A[node.ID * 6 + 5, :] = A2[D2_indices.index(node.ID * 6 + 5), :]
             else:
                 D[node.ID * 6 + 5, :] = D1[D1_indices.index(node.ID * 6 + 5), :]
                 V[node.ID * 6 + 5, :] = V1[D1_indices.index(node.ID * 6 + 5), :]
@@ -3706,7 +3909,49 @@ class FEModel3D():
             node.RY[combo_name] = D[node.ID * 6 + 4, -1]
             node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
 
-        Analysis._calc_reactions(self, log, combo_tags='THA')
+        # Calculate reactions
+        # The damping models "rayleigh" and "modal" do not offer methods for specifying the complete
+        # damping matrix. As a result, the reaction forces are solely computed based on elastic and
+        # inertial forces. I am currently conducting research on this matter to determine the appropriate
+        # approach for addressing it.
+        if sparse:
+            R = M_total.tocsr() @ self._ACCELERATION_THA\
+                + K_total.tocsr() @ self._DISPLACEMENT_THA\
+                - self.F_TOTAL
+        else:
+            R = M_total @ self._ACCELERATION_THA \
+                + K_total @ self._DISPLACEMENT_THA \
+                - self.F_TOTAL
+
+        # Save the reactions
+        self._REACTIONS_THA = R
+
+        # Put the reactions at the last time step into the constrained nodes
+        for node in self.Nodes.values():
+            if node.support_DX == True:
+                node.RxnFX[combo_name] = R[node.ID * 6 + 0, -1]
+            else:
+                node.RxnFX[combo_name] = 0.0
+            if node.support_DY == True:
+                node.RxnFY[combo_name] = R[node.ID * 6 + 1, -1]
+            else:
+                node.RxnFY[combo_name] = 0.0
+            if node.support_DZ == True:
+                node.RxnFZ[combo_name] = R[node.ID * 6 + 2, -1]
+            else:
+                node.RxnFZ[combo_name] = 0.0
+            if node.support_RX == True:
+                node.RxnMX[combo_name] = R[node.ID * 6 + 3, -1]
+            else:
+                node.RxnMX[combo_name] = 0.0
+            if node.support_RY == True:
+                node.RxnMY[combo_name] = R[node.ID * 6 + 4, -1]
+            else:
+                node.RxnMY[combo_name] = 0.0
+            if node.support_RZ == True:
+                node.RxnMZ[combo_name] = R[node.ID * 6 + 5, -1]
+            else:
+                node.RxnMZ[combo_name] = 0.0
 
         if log:
             print('')
@@ -3715,6 +3960,7 @@ class FEModel3D():
 
         # Flag the model as solved
         self.DynamicSolution['Time History'] = True
+
 
     def analyze_linear_time_history_wilson_theta(self, analysis_method = 'direct', combo_name=None, AgX=None, AgY=None,
                                                  AgZ=None,step_size = 0.01, response_duration = 1,
@@ -4777,6 +5023,18 @@ class FEModel3D():
         """
         return self._ACCELERATION_IMAGINARY
 
+    def REACTIONS_REAL(self):
+        """
+        Returns the real part of the models reaction forces solved from harmonic analysis
+        """
+        return self._REACTIONS_REAL
+
+    def REACTIONS_IMAGINARY(self):
+        """
+        Returns the imaginary part of the models reaction forces solved from harmonic analysis
+        """
+        return self._REACTIONS_IMAGINARY
+
     def NATURAL_FREQUENCIES(self):
         """
         Returns the natural frequencies of the model
@@ -4806,6 +5064,12 @@ class FEModel3D():
         Returns the global time history accelerations
         """
         return self._ACCELERATION_THA
+
+    def REACTIONS_THA(self):
+        """
+        Returns the model's reactions time history
+        """
+        return self._REACTIONS_THA
 
     def TIME_THA(self):
         """
