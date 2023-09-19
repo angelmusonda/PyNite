@@ -3015,10 +3015,10 @@ class FEModel3D():
             if any(D2) == False:
                 raise DynamicLoadNotDefinedError('Provide the name of the dynamic load combination or at least prescribe a displacement at one node')
 
-        # If only prescribed displacement has been provided, add default the load combination 'Combo 1'
+        # If only prescribed displacement has been provided, add default the load combination 'FRA combo'
         if harmonic_combo==None:
-            harmonic_combo = 'Combo 1'
-            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':0}, combo_tags='FRA')
+            harmonic_combo = 'FRA combo'
+            self.LoadCombos['FRA combo'] = LoadCombo(name='FRA combo', factors={'Case 1':0}, combo_tags='FRA')
 
 
         # We can now begin the harmonic analysis
@@ -3473,17 +3473,12 @@ class FEModel3D():
             if any(D2_for_check) == False:
                 raise DynamicLoadNotDefinedError
 
-        # If only a seismic load has been provided, add default the load combination 'Combo 1'
+        # If only a seismic load has been provided, add default load combination 'THA combo'
         # Define its profile too
         if combo_name==None:
-            combo_name = 'Combo 1'
-            self.LoadCombos['Combo 1'] = LoadCombo(name='Combo 1', factors={'Case 1':1}, combo_tags='THS')
+            combo_name = 'THA combo'
+            self.LoadCombos[combo_name] = LoadCombo(name=combo_name, factors={'Case 1':1}, combo_tags='THA')
             self.LoadProfiles['Case 1'] = LoadProfile(load_case_name='Case 1',time = [0,response_duration],profile=[0,0])
-
-        # Add tags to the load combinations that do not have tags. We will use this to filter results
-        for combo in self.LoadCombos.values():
-            if combo.combo_tags == None:
-                combo.combo_tags = 'unknown_type'
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -3854,6 +3849,7 @@ class FEModel3D():
                 D[node.ID * 6 + 0, :] = D1[D1_indices.index(node.ID * 6 + 0), :]
                 V[node.ID * 6 + 0, :] = V1[D1_indices.index(node.ID * 6 + 0), :]
                 A[node.ID * 6 + 0, :] = A1[D1_indices.index(node.ID * 6 + 0), :]
+
             if D2_indices.count(node.ID * 6 + 1) == 1:
                 D[node.ID * 6 + 1, :] = D2[D2_indices.index(node.ID * 6 + 1), :]
                 V[node.ID * 6 + 1, :] = V2[D2_indices.index(node.ID * 6 + 1), :]
@@ -3876,7 +3872,6 @@ class FEModel3D():
                 D[node.ID * 6 + 3, :] = D2[D2_indices.index(node.ID * 6 + 3), :]
                 V[node.ID * 6 + 3, :] = V2[D2_indices.index(node.ID * 6 + 3), :]
                 A[node.ID * 6 + 3, :] = A2[D2_indices.index(node.ID * 6 + 3), :]
-
             else:
                 D[node.ID * 6 + 3, :] = D1[D1_indices.index(node.ID * 6 + 3), :]
                 V[node.ID * 6 + 3, :] = V1[D1_indices.index(node.ID * 6 + 3), :]
