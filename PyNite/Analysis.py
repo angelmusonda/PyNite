@@ -1336,8 +1336,8 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
 
     for i in range(total_steps-1):
         if log:
-            pass
-            #print('Analysing for t = ',current_time)
+            update_progress(i, total_steps - 2, '- Analysis Progress')
+
         # Calculate the predictors
         dp = D_n[:,i] + tau * V_n[:,i] + tau**2 * (0.5-beta) * A_n[:,i]
         vp = V_n[:,i] + tau * (1-gamma) * A_n[:,i]
