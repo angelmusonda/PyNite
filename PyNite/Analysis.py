@@ -1423,7 +1423,6 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
 
     # Import sparse solver if matrices are sparse
     if sparse == True:
-        from scipy.sparse.linalg import spsolve, splu
         M = M.tocsc()
         K = K.tocsc()
     else:
@@ -1440,6 +1439,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
 
     # Calculate the initial acceleration
     if sparse:
+        from scipy.sparse.linalg import spsolve, splu
         a0 = spsolve(M, F0 - C @ v0 - K @ d0)
     else:
         a0 = solve(M, F0 - C @ v0 - K @ d0)
@@ -1449,11 +1449,13 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
 
     # Decompose the constant coefficient matrix
     lu_sparse_CCM = None
-    lu_CCM, lu_piv_CCM = None, None
+    #lu_CCM, lu_piv_CCM = None, None
     if sparse:
         lu_sparse_CCM = splu (CCM.tocsc(),permc_spec="MMD_ATA")
     else:
-        lu_CCM, lu_piv_CCM = lu_factor (CCM, overwrite_a=True)
+        #lu_CCM, lu_piv_CCM = lu_factor (CCM, overwrite_a=True)
+        from numpy.linalg import qr
+        Q_CCM, R_CCM = qr(CCM)
 
 
     # Initialise the current time
@@ -1505,7 +1507,8 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
 
         for i in range(total_steps - 1):
             if log:
-                print('Analysing for t = ', current_time)
+                update_progress(i, total_steps - 2, '- Analysis Progress')
+
             # Calculate the predictors
             dp = D[:, i] + tau * V[:, i] + tau ** 2 * (0.5 - beta) * A[:, i]
             vp = V[:, i] + tau * (1 - gamma) * A[:, i]
@@ -1514,7 +1517,8 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
             RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * D[:, i])
 
             # Calculate the collocation acceleration
-            A_col = lu_solve( (lu_CCM, lu_piv_CCM) ,b = RHS , overwrite_b = True)
+            #A_col = lu_solve( (lu_CCM, lu_piv_CCM) ,b = RHS , overwrite_b = True)
+            A_col = backward_solve(R_CCM, Q_CCM.T @ RHS)
 
             # Compute and save the acceleration, velocity and displacement
             A[:, i + 1] = A[:, i] + (1 / theta) * (A_col - A[:, i])
@@ -1535,7 +1539,25 @@ def update_progress(step, total, process_name):
     progress_bar = '=' * int(bar_length * progress / 100)
     sys.stdout.write(f'\r{process_name}: [{progress_bar: <{bar_length}}] {progress:3}%')
     sys.stdout.flush()
-    time.sleep(1e-15)
 
 
+import threading
+def monitor_progress_in_thread(step, total, process_name):
+    thread = threading.Thread(target=update_progress, args=(step, total, process_name))
+    thread.start()
+    thread.join()
+
+def backward_solve(U, b):
+    """x = back_sub(U, b) is the solution to U x = b
+       U must be an upper-triangular matrix
+       b must be a vector of the same leading dimension as U
+    """
+    n = U.shape[0]
+    x = zeros(n)
+    for i in range(n-1, -1, -1):
+        tmp = b[i]
+        for j in range(i+1, n):
+            tmp -= U[i,j] * x[j]
+        x[i] = tmp / U[i,i]
+    return x
 

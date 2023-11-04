@@ -3804,6 +3804,7 @@ class FEModel3D():
             F_n = Z.T @ F
 
         # Run the analysis
+
         if log:
             print('')
             print('+-------------------------+')
@@ -3812,6 +3813,10 @@ class FEModel3D():
 
         try:
             if analysis_method == 'direct':
+
+                import time
+                start_time = time.time()
+
                 TIME, D1, V1, A1 = \
                      Analysis._transient_solver_linear_direct(K=K11, M=M11,d0=d0_phy,v0=v0_phy,
                                                               F0=F[:,0],F = F,step_size=step_size,
@@ -3821,7 +3826,9 @@ class FEModel3D():
                                                               taylor_alpha=0, wilson_theta=1,
                                                               rayleigh_alpha=r_alpha, rayleigh_beta=r_beta,
                                                               sparse=sparse,log=log)
-
+                end_time = time.time()
+                execution_time = end_time - start_time
+                print("\nExecution time:", execution_time)
             else:
                 TIME, D1, V1, A1 = \
                     Analysis._transient_solver_linear_modal(d0_n=d0_n, v0_n=v0_n, F0_n=F_n[:, 0],

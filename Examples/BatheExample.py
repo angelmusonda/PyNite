@@ -103,11 +103,18 @@ damping = dict(constant_modal_damping = 0.02)
 
 model.analyze_harmonic(harmonic_combo='H combo',f1 = 40, f2=150,f_div=1000,sparse=True,
                        damping_options=damping)
+
+
+
+
+
 model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
                                             combo_name='T combo',
-                                            step_size=0.0001,
+                                            step_size=0.00001,
                                             response_duration=0.1,
                                             log=True, sparse=True)
+
+
 #print(model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
