@@ -1,7 +1,7 @@
 from PyNite import FEModel3D
 
 # UNCOMMENT TO EDIT MODEL
-"""
+
 # MODELLING
 # Instatiate analysis model
 model = FEModel3D()
@@ -171,7 +171,7 @@ with open('full_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-"""
+
 
 # RETRIEVE MODEL
 import pickle

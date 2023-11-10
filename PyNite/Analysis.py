@@ -1858,12 +1858,6 @@ def update_progress(step, total, process_name):
     sys.stdout.flush()
 
 
-import threading
-def monitor_progress_in_thread(step, total, process_name):
-    thread = threading.Thread(target=update_progress, args=(step, total, process_name))
-    thread.start()
-    thread.join()
-
 def backward_solve(U, b):
     """x = back_sub(U, b) is the solution to U x = b
        U must be an upper-triangular matrix

@@ -2042,28 +2042,23 @@ class FEModel3D():
         # Return the global mass matrix
         return M
 
-    def Kg(self, combo_name='Combo 1', log=False, sparse=True):
-        """Returns the model's global geometric stiffness matrix. The model must have a static
-           solution prior to obtaining the geometric stiffness matrix. Stiffness of plates is not
-           included.
+    def Kg(self, combo_name='Combo 1', log=False, sparse=True, first_step=True):
+        """Returns the model's global geometric stiffness matrix. Geometric stiffness of plates is not considered.
 
-        :param combo_name: The name of the load combination to derive the matrix for. Defaults to
-                           'Combo 1'.
+        :param combo_name: The name of the load combination to derive the matrix for. Defaults to 'Combo 1'.
         :type combo_name: str, optional
         :param log: Prints updates to the console if set to `True`. Defaults to `False`.
         :type log: bool, optional
-        :param sparse: Returns a sparse matrix if set to `True`, and a dense matrix otherwise.
-                       Defaults to `True`.
+        :param sparse: Returns a sparse matrix if set to `True`, and a dense matrix otherwise. Defaults to `True`.
         :type sparse: bool, optional
+        :param first_step: Used to indicate if the analysis is occuring at the first load step. Used in nonlinear analysis where the load is broken into multiple steps. Default is `True`.
+        :type first_step: book, optional
         :return: The global geometric stiffness matrix for the structure.
         :rtype: ndarray or coo_matrix
         """
 
         if sparse == True:
-            # Initialize a zero matrix to hold all the stiffness terms. The matrix will be stored as a
-            # scipy sparse `lil_matrix`. This matrix format has several advantages. It uses less memory
-            # if the matrix is sparse, supports slicing, and can be converted to other formats (sparse
-            # or dense) later on for mathematical operations.
+            # Initialize a zero matrix to hold all the stiffness terms. The matrix will be stored as a scipy sparse `lil_matrix`. This matrix format has several advantages. It uses less memory if the matrix is sparse, supports slicing, and can be converted to other formats (sparse or dense) later on for mathematical operations.
             from scipy.sparse import lil_matrix
             Kg = lil_matrix((len(self.Nodes) * 6, len(self.Nodes) * 6))
         else:
@@ -2084,7 +2079,6 @@ class FEModel3D():
                     A = member.A
                     L = member.L()
 
-
                     # Calculate the axial force acting on the member
                     if first_step:
                         # For the first load step take P = 0
@@ -2092,8 +2086,7 @@ class FEModel3D():
                     else:
                         # Calculate the member axial force due to axial strain
                         d = member.d(combo_name)
-                        P = E*A/L*(d[6, 0] - d[0, 0])
-
+                        P = E * A / L * (d[6, 0] - d[0, 0])
 
                     # Get the member's global stiffness matrix
                     # Storing it as a local variable eliminates the need to rebuild it every time a term is needed
