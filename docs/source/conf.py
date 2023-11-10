@@ -18,12 +18,18 @@ sys.path.insert(0, os.path.abspath('../../PyNite'))
 project = 'Pynite'
 copyright = '2023, D. Craig Brinck, SE'
 author = 'D. Craig Brinck, SE'
-release = '0.0.71'
+release = '0.0.81'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = ['sphinx.ext.autodoc']
+
+# Control how class names are displayed
+autoclass_content = 'class'
+
+# autodoc settings
+autodoc_mock_imports = ['numpy']  # Mock the numpy import
 
 templates_path = ['_templates']
 exclude_patterns = []
