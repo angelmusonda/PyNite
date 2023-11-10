@@ -102,19 +102,18 @@ model.analyze_modal(num_modes=20,sparse=True)
 
 #print(model.MASS_PARTICIPATION_PERCENTAGES())
 damping = dict(constant_modal_damping = 0.02)
-"""print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 50, f2=150,f_div=1000,sparse=True,
-                       damping_options=damping))"""
-"""
+print(model.analyze_harmonic(harmonic_combo='COMB1',f1 = 50, f2=150,f_div=1000,sparse=True,
+                       damping_options=damping))
+
 model.def_node_disp('T2','DY',0.2)
 model.def_disp_profile('T2','DY',[0,0.1,1],[1,1,1])
-"""
+
 print(model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
                                                       combo_name='COMB1',
                                             step_size=0.5,
                                             response_duration=1,
                                             log=False, sparse=True))
-#print(model.NATURAL_FREQUENCIES())
-"""
+
 import matplotlib.pyplot as plt
 
 # Sample data
@@ -138,16 +137,16 @@ plt.title('Simple Line Plot')
 
 #print(model.NATURAL_FREQUENCIES())
 # Show the plot
-plt.show() """
+plt.show()
 
-"""
+
 from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
              render_loads=False,
              annotation_size=0.05,
-             combo_name='Combo 1')
-"""
+             combo_name='COMB1')
+
 
 

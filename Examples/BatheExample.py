@@ -148,11 +148,11 @@ with open('model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-""""
+
 from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
              render_loads=True,
              annotation_size=0.05,
-             combo_name='TH combo')"""
+             combo_name=model.THA_combo_name)

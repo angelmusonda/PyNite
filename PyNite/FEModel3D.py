@@ -2818,19 +2818,18 @@ class FEModel3D():
         # Get the partitioned global stiffness and mass matrix
         combo_name = "Modal Combo"
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices,
-                                                 D2_indices)
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices,D2_indices)
             # We will not check for stability of the mass matrix. check_stability will be set to False
             # This is because for the shell elements, the mass matrix has zeroes
             # on the rotation about z-axis DOFs
             # Only the stiffness matrix is modified to account for this 'drilling' effect
             # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
             # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, check_stability, sparse), D1_indices,
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, check_stability, sparse), D1_indices,
                                                  D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
 
         if log:
             print('')
@@ -2968,9 +2967,9 @@ class FEModel3D():
 
 
         # Partition the influence vectors
-        influence_X = self._partition(influence_X, D1_indices, D2_indices)[0]
-        influence_Y = self._partition(influence_Y, D1_indices, D2_indices)[0]
-        influence_Z = self._partition(influence_Z, D1_indices, D2_indices)[0]
+        influence_X = Analysis._partition(self,influence_X, D1_indices, D2_indices)[0]
+        influence_Y = Analysis._partition(self,influence_Y, D1_indices, D2_indices)[0]
+        influence_Z = Analysis._partition(self,influence_Z, D1_indices, D2_indices)[0]
 
         # Calculate total masses in each direction
         if sparse:
@@ -3094,14 +3093,14 @@ class FEModel3D():
 
         # Get the partitioned global stiffness matrix K11, K12, K21, K22
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices,
                                                  D2_indices)
             K_total = self.K(harmonic_combo, log, False, sparse).tolil()
             M_total = self.M(harmonic_combo, log, False, sparse,type_of_mass_matrix).tolil()
         else:
-            K11, K12, K21, K22 = self._partition(self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(harmonic_combo, log, False, sparse).tolil(), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix), D1_indices, D2_indices)
             K_total = self.K(harmonic_combo, log, False, sparse).tolil()
             M_total = self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix)
 
@@ -3109,10 +3108,10 @@ class FEModel3D():
         Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
 
         # Get the partitioned global fixed end reaction vector
-        FER1, FER2 = self._partition(self.FER(harmonic_combo), D1_indices, D2_indices)
+        FER1, FER2 = Analysis._partition(self,self.FER(harmonic_combo), D1_indices, D2_indices)
 
         # Get the partitioned global nodal force vector
-        P1, P2 = self._partition(self.P(harmonic_combo), D1_indices, D2_indices)
+        P1, P2 = Analysis._partition(self,self.P(harmonic_combo), D1_indices, D2_indices)
 
         # Get the total force vector to be used for calculation of reactions
         F_total = self.P(harmonic_combo) - self.FER(harmonic_combo)
@@ -3696,14 +3695,14 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
             K_total = self.K(combo_name, log, False, sparse).tolil()
             M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
             K_total = self.K(combo_name, log, False, sparse)
             M_total = self.M(combo_name, log, False, sparse, type_of_mass_matrix)
@@ -3740,9 +3739,9 @@ class FEModel3D():
             i += 6
 
         # Partition the influence vectors
-        influence_X = self._partition(unp_influence_X, D1_indices, D2_indices)[0]
-        influence_Y = self._partition(unp_influence_Y, D1_indices, D2_indices)[0]
-        influence_Z = self._partition(unp_influence_Z, D1_indices, D2_indices)[0]
+        influence_X = Analysis._partition(self,unp_influence_X, D1_indices, D2_indices)[0]
+        influence_Y = Analysis._partition(self,unp_influence_Y, D1_indices, D2_indices)[0]
+        influence_Z = Analysis._partition(self,unp_influence_Z, D1_indices, D2_indices)[0]
 
 
         # We want to build the loading history, i.e load for each time step
@@ -3781,7 +3780,7 @@ class FEModel3D():
             unp_P_and_FER[case_name] = P_and_FER_temp
 
             # Save into the partitioned force dictionary
-            P_and_FER[case_name] = self._partition(P_and_FER_temp.reshape(total_dof,1),
+            P_and_FER[case_name] = Analysis._partition(self,P_and_FER_temp.reshape(total_dof,1),
                                                    D1_indices,D2_indices)[0]
 
         # We restore the original load combination
@@ -3873,12 +3872,12 @@ class FEModel3D():
         if d0 == None:
             d0_phy = zeros(len(D1_indices))
         else:
-            d0_phy, d02 = self._partition(d0, D1_indices, D2_indices)
+            d0_phy, d02 = Analysis._partition(self,d0, D1_indices, D2_indices)
 
         if v0 == None:
             v0_phy = zeros(len(D1_indices))
         else:
-            v0_phy, v02 = self._partition(v0, D1_indices, D2_indices)
+            v0_phy, v02 = Analysis._partition(self,v0, D1_indices, D2_indices)
 
         # Find the corresponding quantities in the modal coordinate system if modal superposition method is requested
         if analysis_method == 'modal':
@@ -4293,12 +4292,12 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
 
         # Initialise load vector for the entire analysis duration
@@ -4358,8 +4357,8 @@ class FEModel3D():
                 # For this time t, the load combination has been edited to reflect the loading situation
                 # at this point in time. Hence the fixed end reactions and nodal loads can be calculated
                 # for this point in time
-                FER1, FER2 = self._partition(self.FER(combo_name), D1_indices, D2_indices)
-                P1, P2 = self._partition(self.P(combo_name), D1_indices, D2_indices)
+                FER1, FER2 = Analysis._partition(self,self.FER(combo_name), D1_indices, D2_indices)
+                P1, P2 = Analysis._partition(self,self.P(combo_name), D1_indices, D2_indices)
 
                 # Save the calculated nodal loads and fixed end reactions into the load vector
                 F[:,i] = P1[:,0] - FER1[:,0]
@@ -4369,17 +4368,17 @@ class FEModel3D():
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
             if AgX is not None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
+                AgX_F = -M11 @ Analysis._partition(self,influence_X , D1_indices, D2_indices)[0] \
                         * interp(t, AgX[0, :], AgX[1, :])
                 F[:,i] += AgX_F[0,:]
 
             if AgY is not None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
+                AgY_F = -M11 @ Analysis._partition(self,influence_Y , D1_indices, D2_indices)[0] \
                          * interp(t, AgY[0, :], AgY[1, :])
                 F[:,i] += AgY_F[0,:]
 
             if AgZ is not None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
+                AgZ_F = -M11 @ Analysis._partition(self,influence_Z , D1_indices, D2_indices)[0] \
                          * interp(t, AgZ[0,:], AgZ[1,:])
                 F[:,i] += AgZ_F[0,:]
 
@@ -4408,12 +4407,12 @@ class FEModel3D():
         if d0 == None:
             d0_phy = zeros(len(D1_indices))
         else:
-            d0_phy, d02 = self._partition(d0, D1_indices, D2_indices)
+            d0_phy, d02 = Analysis._partition(self,d0, D1_indices, D2_indices)
 
         if v0 == None:
             v0_phy = zeros(len(D1_indices))
         else:
-            v0_phy, v02 = self._partition(v0, D1_indices, D2_indices)
+            v0_phy, v02 = Analysis._partition(self,v0, D1_indices, D2_indices)
 
         # Find the corresponding quantities the modal coordinate system if modal superposition method is requested
         if analysis_method == 'modal':
@@ -4795,12 +4794,12 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
                                                  D1_indices, D2_indices)
         else:
-            K11, K12, K21, K22 = self._partition(self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
-            M11, M12, M21, M22 = self._partition(self.M(combo_name, log, False, sparse, type_of_mass_matrix),
+            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse, type_of_mass_matrix),
                                                  D1_indices, D2_indices)
 
         # Initialise load vector for the entire analysis duration
@@ -4860,8 +4859,8 @@ class FEModel3D():
                 # For this time t, the load combination has been edited to reflect the loading situation
                 # at this point in time. Hence the fixed end reactions and nodal loads can be calculated
                 # for this point in time
-                FER1, FER2 = self._partition(self.FER(combo_name), D1_indices, D2_indices)
-                P1, P2 = self._partition(self.P(combo_name), D1_indices, D2_indices)
+                FER1, FER2 = Analysis._partition(self,self.FER(combo_name), D1_indices, D2_indices)
+                P1, P2 = Analysis._partition(self,self.P(combo_name), D1_indices, D2_indices)
 
                 # Save the calculated nodal loads and fixed end reactions into the load vector
                 F[:,i] = P1[:,0] - FER1[:,0]
@@ -4871,17 +4870,17 @@ class FEModel3D():
             # and a_g is the ground acceleration
             # Interpolation is used again to find the ground acceleration at time t
             if AgX is not None:
-                AgX_F = -M11 @ self._partition(influence_X , D1_indices, D2_indices)[0] \
+                AgX_F = -M11 @ Analysis._partition(self,influence_X , D1_indices, D2_indices)[0] \
                         * interp(t, AgX[0, :], AgX[1, :])
                 F[:,i] += AgX_F[0,:]
 
             if AgY is not None:
-                AgY_F = -M11 @ self._partition(influence_Y , D1_indices, D2_indices)[0] \
+                AgY_F = -M11 @ Analysis._partition(self,influence_Y , D1_indices, D2_indices)[0] \
                          * interp(t, AgY[0, :], AgY[1, :])
                 F[:,i] += AgY_F[0,:]
 
             if AgZ is not None:
-                AgZ_F = -M11 @ self._partition(influence_Z , D1_indices, D2_indices)[0] \
+                AgZ_F = -M11 @ Analysis._partition(self,influence_Z , D1_indices, D2_indices)[0] \
                          * interp(t, AgZ[0,:], AgZ[1,:])
                 F[:,i] += AgZ_F[0,:]
 
@@ -4910,12 +4909,12 @@ class FEModel3D():
         if d0 == None:
             d0_phy = zeros(len(D1_indices))
         else:
-            d0_phy, d02 = self._partition(d0, D1_indices, D2_indices)
+            d0_phy, d02 = Analysis._partition(self,d0, D1_indices, D2_indices)
 
         if v0 == None:
             v0_phy = zeros(len(D1_indices))
         else:
-            v0_phy, v02 = self._partition(v0, D1_indices, D2_indices)
+            v0_phy, v02 = Analysis._partition(self,v0, D1_indices, D2_indices)
 
         # Find the corresponding quantities the modal coordinate system if modal superposition method is requested
         if analysis_method == 'modal':
