@@ -1,6 +1,6 @@
 import pickle
 from PyNite import FEModel3D, Analysis
-from numpy import pi, zeros, interp, linspace, array, sqrt
+from numpy import pi, zeros, interp, searchsorted
 from PyNite.PyNiteExceptions import InputOutOfRangeError, ResultsNotFoundError
 import copy
 
@@ -11,18 +11,18 @@ class ResultsModelBuilder():
     Args:
         saved_model (str): The path to the saved finite element model file.
     """
-    def __init__(self,saved_model):
+    def __init__(self,saved_model_path):
         """
         Initializes a ResultsModelBuilder instance by loading the solved finite element model from a saved file.
 
         Args:
-            saved_model (str): The path to the solved and saved finite element model file.
+            saved_model_path(str): The path to the solved and saved finite element model file.
         """
-        with open(str(saved_model), 'rb') as file:
+        with open(str(saved_model_path), 'rb') as file:
             self._solved_model: FEModel3D = pickle.load(file)
 
 
-    def _save_response_into_node(self,model:FEModel3D, response, combo_name):
+    def _save_response_into_node(self,model:FEModel3D, response, combo_name, reaction = None):
         """
         Saves the calculated global response into each node object.
 
@@ -30,59 +30,99 @@ class ResultsModelBuilder():
             model (FEModel3D): The solved finite element model.
             response: The calculated response (displacement, velocity, acceleration)
             combo_name (str): The name of the load combination.
+            reaction: The calculated reaction, can be real or imaginary in case of harmonic analysis
+            combo_name (str): The name of the load combination.
 
         Returns:
             None
         """
 
         # Store the calculated global response into each node object
-        for node in model.Nodes.values():
-            node.DX[combo_name] = response[node.ID * 6 + 0, 0]
-            node.DY[combo_name] = response[node.ID * 6 + 1, 0]
-            node.DZ[combo_name] = response[node.ID * 6 + 2, 0]
-            node.RX[combo_name] = response[node.ID * 6 + 3, 0]
-            node.RY[combo_name] = response[node.ID * 6 + 4, 0]
-            node.RZ[combo_name] = response[node.ID * 6 + 5, 0]
+        if reaction is not None:
+            for node in model.Nodes.values():
 
-    def _save_reaction_into_node(self, model:FEModel3D, R, combo_name):
+                # Displacement, Velocity or Acceleration
+                node.DX[combo_name] = response[node.ID * 6 + 0, 0]
+                node.DY[combo_name] = response[node.ID * 6 + 1, 0]
+                node.DZ[combo_name] = response[node.ID * 6 + 2, 0]
+                node.RX[combo_name] = response[node.ID * 6 + 3, 0]
+                node.RY[combo_name] = response[node.ID * 6 + 4, 0]
+                node.RZ[combo_name] = response[node.ID * 6 + 5, 0]
+
+                # Reaction
+                if node.support_DX == True:
+                    node.RxnFX[combo_name] = reaction[node.ID * 6 + 0, -1]
+                else:
+                    node.RxnFX[combo_name] = 0.0
+                if node.support_DY == True:
+                    node.RxnFY[combo_name] = reaction[node.ID * 6 + 1, -1]
+                else:
+                    node.RxnFY[combo_name] = 0.0
+                if node.support_DZ == True:
+                    node.RxnFZ[combo_name] = reaction[node.ID * 6 + 2, -1]
+                else:
+                    node.RxnFZ[combo_name] = 0.0
+                if node.support_RX == True:
+                    node.RxnMX[combo_name] = reaction[node.ID * 6 + 3, -1]
+                else:
+                    node.RxnMX[combo_name] = 0.0
+                if node.support_RY == True:
+                    node.RxnMY[combo_name] = reaction[node.ID * 6 + 4, -1]
+                else:
+                    node.RxnMY[combo_name] = 0.0
+                if node.support_RZ == True:
+                    node.RxnMZ[combo_name] = reaction[node.ID * 6 + 5, -1]
+                else:
+                    node.RxnMZ[combo_name] = 0.0
+
+        else:
+            # Reactions not available
+            for node in model.Nodes.values():
+                # Displacement, Velocity or Acceleration
+                node.DX[combo_name] = response[node.ID * 6 + 0, 0]
+                node.DY[combo_name] = response[node.ID * 6 + 1, 0]
+                node.DZ[combo_name] = response[node.ID * 6 + 2, 0]
+                node.RX[combo_name] = response[node.ID * 6 + 3, 0]
+                node.RY[combo_name] = response[node.ID * 6 + 4, 0]
+                node.RZ[combo_name] = response[node.ID * 6 + 5, 0]
+
+    def simple_interpolater(self, target_x, X_vector, Y_matrix):
+
         """
-        Saves the calculated reactions into each node object.
+        Interpolates the Y values corresponding to the target_x using linear interpolation.
 
-        Args:
-            model (FEModel3D): The solved finite element model.
-            R: The calculated reaction, can be real or imaginary in case of harmonic analysis
-            combo_name (str): The name of the load combination.
+        Parameters:
+        - target_x (float): The x-value for which interpolation is performed.
+        - X_vector (list or numpy array): The vector of x-values in ascending order.
+        - Y_matrix (numpy array): The matrix of corresponding y-values, where each column represents a different set of y-values.
 
         Returns:
-            None
+        - output_y (numpy array): The interpolated y-values corresponding to the target_x.
         """
-        # Put the reactions at the last time step into the constrained nodes
-        for node in model.Nodes.values():
-            if node.support_DX == True:
-                node.RxnFX[combo_name] = R[node.ID * 6 + 0, -1]
-            else:
-                node.RxnFX[combo_name] = 0.0
-            if node.support_DY == True:
-                node.RxnFY[combo_name] = R[node.ID * 6 + 1, -1]
-            else:
-                node.RxnFY[combo_name] = 0.0
-            if node.support_DZ == True:
-                node.RxnFZ[combo_name] = R[node.ID * 6 + 2, -1]
-            else:
-                node.RxnFZ[combo_name] = 0.0
-            if node.support_RX == True:
-                node.RxnMX[combo_name] = R[node.ID * 6 + 3, -1]
-            else:
-                node.RxnMX[combo_name] = 0.0
-            if node.support_RY == True:
-                node.RxnMY[combo_name] = R[node.ID * 6 + 4, -1]
-            else:
-                node.RxnMY[combo_name] = 0.0
-            if node.support_RZ == True:
-                node.RxnMZ[combo_name] = R[node.ID * 6 + 5, -1]
-            else:
-                node.RxnMZ[combo_name] = 0.0
 
+        # Function performs linear interpolation based on the given parameters.
+        # If target_x is equal to the first or last value in X_vector, the corresponding Y values are directly taken.
+        # Otherwise, linear interpolation is applied between the two nearest x-values.
+
+        # Note: Make sure X_vector is in ascending order for accurate results.
+        # Note: The dimensions of Y_matrix should match the requirements for numpy array operations.
+
+        if target_x == X_vector[0]:
+            output_y = Y_matrix[:, 0]
+        elif target_x == X_vector[-1]:
+            output_y = Y_matrix[:, -1]
+        else:
+            # Find the index
+            i = searchsorted(X_vector,target_x, side='right')
+
+            a = X_vector[i-1]
+            A = Y_matrix[:,i-1]
+            b = X_vector[i]
+            B = Y_matrix[:,i-1]
+
+            output_y =(target_x-a)/(b-a) * (B-A) + A
+
+        return output_y
 
 class FRAResultsModelBuilder(ResultsModelBuilder):
     """
@@ -91,15 +131,15 @@ class FRAResultsModelBuilder(ResultsModelBuilder):
     This class is used to build a results model with data at a specified load frequency in FRA.
 
     Parameters:
-        saved_model (str): The path to the saved finite element model file with results.
+        saved_model_path (str): The path to the saved finite element model file with results.
 
     Example:
         builder = FRAResultsModelBuilder("model_file.pkl")
         result_model = builder.get_model(freq=10.0, response_type="DR")  # Access the results model with FRA data at frequency 10.0 and real displacement response.
     """
 
-    def __init__(self, saved_model):
-        super().__init__(saved_model)
+    def __init__(self, saved_model_path):
+        super().__init__(saved_model_path)
 
     def get_model(self,freq, response_type = 'DR'):
         """
@@ -149,21 +189,16 @@ class FRAResultsModelBuilder(ResultsModelBuilder):
         else:
             raise ValueError('Allowed response types are "DR", "VR", "AR", "D1", "V1", and "AI" but '+response_type+ ' was given.')
 
-        # Get the number of degrees of freedom for building the response vector at a specified load frequency
         dof = self._total_response.shape[0]
-
-        # Initialise the response and reaction vectors at a specified load frequency
-        response_at_freq = zeros((dof, 1))
-        reactions_at_freq = zeros((dof, 1))
-        # Build the response at a specified frequency from the total response through interpolation
-        for i in range(dof):
-            # Linear interpolation
-            response_at_freq[i, 0] = interp(freq, model.LoadFrequencies, self._total_response[i, :])
-            reactions_at_freq[i,0] = interp(freq, model.LoadFrequencies, self._total_reaction[i, :])
+        response_at_freq = self.simple_interpolater(freq, model.LoadFrequencies, self._total_response).reshape(dof,1)
+        reactions_at_freq = self.simple_interpolater(freq, model.LoadFrequencies, self._total_reaction).reshape(dof,1)
 
         # Now that the response is interpolated, put it into respective nodes
-        self._save_response_into_node(model=model, response=response_at_freq, combo_name=model.FRA_combo_name)
-        self._save_reaction_into_node(model=model, R = reactions_at_freq, combo_name=model.FRA_combo_name)
+        self._save_response_into_node(
+            model=model, response=response_at_freq,
+            combo_name=model.FRA_combo_name,
+            reaction=reactions_at_freq
+        )
 
         # The model now contains results for the specified frequency, return it
         return model
@@ -280,7 +315,7 @@ class THAResultsModelBuilder(ResultsModelBuilder):
         Get the finite element model with data at a specified time instance within a time history analysis.
 
         Args:
-            time (float): The time instance for which results are requested within the time history analysis.
+            time (list, ndarray): The time instance for which results are requested within the time history analysis.
             response_type (str, optional): The type of response quantity requested ("D" for displacement, "V" for velocity, or "A" for acceleration). Default is "D".
 
         Raises:
@@ -315,19 +350,22 @@ class THAResultsModelBuilder(ResultsModelBuilder):
         # Get the number of degrees of freedom for building the response vector at a specified time instance
         dof = self._total_response.shape[0]
 
-        # Initialise the response and reaction vectors at a specified time instance
-        response_at_time = zeros((dof, 1))
-        reactions_at_time = zeros((dof, 1))
+        # Build the response at a specified time
+        response_at_time = self.simple_interpolater(
+            target_x=time,
+            X_vector=model.TIME_THA(),
+            Y_matrix=self._total_response
+        ).reshape(dof,1)
 
-        # Build the response at a specified frequency from the total response through interpolation
-        for i in range(dof):
-            # Linear interpolation
-            response_at_time[i, 0] = interp(time, model.TIME_THA(), self._total_response[i, :])
-            reactions_at_time[i, 0] = interp(time, model.TIME_THA(), model.REACTIONS_THA()[i, :])
+        reactions_at_time= self.simple_interpolater(time, model.TIME_THA(), model.REACTIONS_THA()).reshape(dof,1)
 
-        # Now that the response is interpolated, put it into respective nodes
-        self._save_response_into_node(model=model, response=response_at_time, combo_name=model.THA_combo_name)
+        self._save_response_into_node(
+            model=model,
+            response=response_at_time,
+            combo_name=model.THA_combo_name,
+            reaction=reactions_at_time
+        )
 
-        # The modelcontains results at the specified time instance, return it
+        # The model contains results at the specified time instance, return it
         return model
 

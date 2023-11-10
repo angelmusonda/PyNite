@@ -180,22 +180,113 @@ with open('full_model.pickle','rb') as file:
 
 
 #UNCOMMENT TO RE - ANALYSE MODEL
-"""
+
 # ANALYSE MODAL
-model.analyze_modal(num_modes=50,log=True)
+#model.analyze_modal(num_modes=5,log=True,type_of_mass_matrix='lumped',sparse=False)
+#print(model.MASS_PARTICIPATION_PERCENTAGES())
+
+
+# EARTHQUAKE DATA
+from numpy import vstack, array, linspace, column_stack, savetxt
+# Specify the path to your text file
+file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\EL Centro.txt'
+
+# Open the file and read its contents into the variable
+with open(file_path, 'r') as file:
+    file_content = file.read()
+
+# Now, you have the entire content of the file in the variable file_content
+# You can process it as needed, including skipping the first 4 lines and splitting into values
+
+# Initialize an empty list to store the values
+values = []
+
+# Split the content into lines
+lines = file_content.split('\n')
+
+# Skip the first 4 lines
+lines = lines[4:]
+
+# Process the remaining lines
+for line in lines:
+    # Split each line into individual values, remove empty strings, and convert to float
+    line_values = [float(val) for val in line.split() if val]
+    values.extend(line_values)
+
+num_values = len(values)
+time = linspace(start=0,stop = (num_values-1) * 0.01, num=num_values)
+
+# Convert the 'values' list to a numpy array and multiply by gravity
+values = 9.81 * array(values)
+
+# Create a 2D array with 'values' in the first row and 'time' in the second row
+ground_acceleration = vstack((time, values))
+
+# Create a 2D numpy array with 'time' and 'values'
+data = column_stack((time, values))
+
+# Specify the path for the CSV file
+csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\EL Centro Processed.csv'
+
+# Save the data to a CSV file
+#savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
+print('num values = ', num_values)
+# Close the file
+file.close()
+
+
+#TIME HISTORY ANALYSIS
+
+"""
+model.analyze_linear_time_history_newmark_beta(
+    analysis_method='direct',
+    AgY=ground_acceleration,
+    step_size=0.01,
+    response_duration=50,
+    log=True
+
+) 
+
 with open('solved_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
+
 """
+from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, THAResultsModelBuilder
+#model_builder = ModalResultsModelBuilder('solved_model.pickle')
+model_builder = THAResultsModelBuilder(saved_model='solved_model.pickle')
+#solved_model = model_builder.get_model(mode = 1)
 
-from PyNite.ResultsModelBuilder import ModalResultsModelBuilder
-model_builder = ModalResultsModelBuilder('solved_model.pickle')
-solved_model = model_builder.get_model(mode = 1)
+print('MODEL BUILDER COMPLETE')
 
+from matplotlib import pyplot as plt
+d = []
+time_for_plot = linspace(0,49,5000)
+
+
+for t in time_for_plot:
+   solved_model = model_builder.get_model(time=t,response_type='D')
+   d.append(solved_model.Nodes['N122'].DY['THA combo'])
+
+plt.plot(time_for_plot, d)
+#plt.plot(solved_model.TIME_THA(),solved_model.DISPLACEMENT_THA()[solved_model.Nodes['N122'].ID * 6 + 1,:])
+plt.show()
+
+data = column_stack((array(time_for_plot), array(d)))
+
+# Specify the path for the CSV file
+csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\disp.txt'
+
+# Save the data to a CSV file
+savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
+
+#print(solved_model.NATURAL_FREQUENCIES())
 from PyNite.Visualization import render_model
+
+
 renderer = render_model(solved_model,
-                        combo_name='Modal Combo',
+                        combo_name='THA combo',
                         deformed_shape=True,
-                        deformed_scale=1000,
+                        deformed_scale=100,
                         annotation_size=0.1,
                         render_loads=False)

@@ -607,6 +607,12 @@ class Quad3D():
         # We need to put this in a 24 by 24 matrix since thats the final size we want
         m_exp = zeros((24, 24))
 
+        m_rz = min(abs(mass_matrix[1, 1]), abs(mass_matrix[2, 2]),
+                   abs(mass_matrix[4, 4]), abs(mass_matrix[5, 5]),
+                   abs(mass_matrix[7, 7]), abs(mass_matrix[8, 8]),
+                   abs(mass_matrix[10, 10]), abs(mass_matrix[11, 11])
+                   )/1000
+
         # Step through each term in the unexpanded mass matrix
         # i = Unexpanded matrix row
         for i in range(12):
@@ -641,10 +647,10 @@ class Quad3D():
                 m_exp[m, n] = mass_matrix[i, j]
 
         # Add the drilling degree of freedom's weak spring
-        #k_exp[5, 5] = k_rz
-        #k_exp[11, 11] = k_rz
-        #k_exp[17, 17] = k_rz
-        #k_exp[23, 23] = k_rz
+        m_exp[5, 5] = m_rz
+        m_exp[11, 11] = m_rz
+        m_exp[17, 17] = m_rz
+        m_exp[23, 23] = m_rz
 
         return m_exp
 #%%

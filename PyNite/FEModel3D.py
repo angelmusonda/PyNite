@@ -5,7 +5,7 @@ import copy
 from math import isclose, ceil
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag, \
-    vstack, diag, hstack
+    outer
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 from numpy.linalg import solve
 from scipy.linalg import inv
@@ -3464,7 +3464,9 @@ class FEModel3D():
                 if damping_key_word not in accepted_damping_key_words:
                     raise DampingOptionsKeyWordError
 
+
         # Get the auxiliary list used to determine how the matrices will be partitioned
+        Analysis._renumber(self)
         D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
 
         # Check if the dynamic load combination or at least one seismic ground acceleration has been given
@@ -3475,7 +3477,9 @@ class FEModel3D():
 
         # If only a seismic load has been provided, add default load combination 'THA combo'
         # Define its profile too
+        combo_exists = True
         if combo_name==None:
+            combo_exists = False
             combo_name = 'THA combo'
             self.LoadCombos[combo_name] = LoadCombo(name=combo_name, factors={'Case 1':1}, combo_tags='THA')
             self.LoadProfiles['Case 1'] = LoadProfile(load_case_name='Case 1',time = [0,response_duration],profile=[0,0])
@@ -3632,6 +3636,7 @@ class FEModel3D():
 
         # Prepare the model
         Analysis._prepare_model(self)
+        D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
 
         # Get the partitioned matrices
         if sparse == True:
@@ -3646,6 +3651,10 @@ class FEModel3D():
                                                  D1_indices, D2_indices)
             K_total = self.K(combo_name, log, False, sparse)
             M_total = self.M(combo_name, log, False, sparse, type_of_mass_matrix)
+
+
+        if log:
+            print('- Building the loading time history')
 
         # Initialise load vector for the entire analysis duration
         F = zeros((len(D1_indices), total_steps))
@@ -3665,118 +3674,136 @@ class FEModel3D():
         # the model stimulated by the earthquake
 
         i = 0
-        influence_X = zeros((total_dof,1))
-        influence_Y = zeros((total_dof,1))
-        influence_Z = zeros((total_dof,1))
+        unp_influence_X = zeros((total_dof,1))
+        unp_influence_Y = zeros((total_dof,1))
+        unp_influence_Z = zeros((total_dof,1))
         while i < total_dof:
-            influence_X[i+0,0] = 1
-            influence_Y[i+1,0] = 1
-            influence_Z[i+2,0] = 1
+            unp_influence_X[i+0,0] = 1
+            unp_influence_Y[i+1,0] = 1
+            unp_influence_Z[i+2,0] = 1
             i += 6
 
-        # Build the load vector step by step
-        # We will make modifications to the load combination in order to define the dynamic load
-        # Each step uses the original load combination, modifies it according to the given load
-        # profiles, and calculates the load vector for that step
-        # Hence we must make a copy of the load combination since each step needs the original
-        # load combination. Also at the end of the analysis we want to restore the original load
-        # combination
+        # Partition the influence vectors
+        influence_X = self._partition(unp_influence_X, D1_indices, D2_indices)[0]
+        influence_Y = self._partition(unp_influence_Y, D1_indices, D2_indices)[0]
+        influence_Z = self._partition(unp_influence_Z, D1_indices, D2_indices)[0]
+
+
+        # We want to build the loading history, i.e load for each time step
+        # Since each load case has its own loading profile or function, we want to calculate
+        # the nodal and fixed end forces separately for each load case
+        # We can do this by creating separate load combinations for each case
+        # These temporary load combinations only consist of one load case
+        # Hence we need to add combinations to add combinations to the existing load combinations dictionary
+        # Since we are modifying the models load combinations dictionary, we must make a copy of it
+        # This copy will be used to restore the original
+
         original_load_combo = copy.deepcopy(self.LoadCombos)
-        t = 0
-        for i in range(total_steps):
-            if log:
-                Analysis.update_progress(i,total_steps-1,'- Generating loading history')
 
-            # Check if a load combination has been given
-            if combo_name != None:
-                # For each load case in the load combination
-                for case_name in self.LoadCombos[combo_name].factors.keys():
+        # We initialise a dictionary that will hold the nodal and fixed end forces for each load case
+        # We want to compute these vectors once and for all, as opposed to doing it for each time step
+        # Doing this for each time step is extremely slow
+        # We actually initialise two, one to hold the partitioned and the other to hold the total
+        P_and_FER = dict()
+        unp_P_and_FER = dict()
 
-                    # Extract the time vector from the load profile definition for this load case
-                    time_list = self.LoadProfiles[case_name].time
+        # We compute the nodal and fixed end forces for each load case
+        for case_name in self.LoadCombos[combo_name].factors.keys():
 
-                    # Extract the load profile for this load case
-                    profile_list = self.LoadProfiles[case_name].profile
+            # We create a temporary load combination that consists of only one load case
+            temp_combo = LoadCombo(name=combo_name,
+                                        factors={case_name: original_load_combo[combo_name].factors[case_name]})
 
-                    # Interpolate the load profile to find the scaling factor for this time t
-                    scaler = interp(t, time_list,profile_list)
+            # We add this temporary load combination to the models load combination dictionary
+            self.LoadCombos[case_name] = temp_combo
 
-                    # Get the load factor from the load combination. We will scale this factor
-                    # It would be more correct to scale the actual load value and not its factor
-                    # But it's hard to do so especially that some load cases are defined by more
-                    # than one value, e.g line member loads are defined by two values
-                    # Also the same load case can apply to different load types e.g the same
-                    # load case can be used for point loads, line loads, pressures, etc.
-                    # Hence, the easiest way to accomplish this is by scaling the load factor
-                    current_factor = self.LoadCombos[combo_name].factors[case_name]
+            # We finally compute the nodal and fixed end forces for this load combination, and, essentially
+            # for this load case
+            P_and_FER_temp = self.P(case_name)[:,0] - self.FER(case_name)[:,0]
 
-                    # Edit the load combination using the changed load factor
-                    self.LoadCombos[combo_name].factors[case_name] = scaler * current_factor
+            # Save into the total force dictionary
+            unp_P_and_FER[case_name] = P_and_FER_temp
 
-                # For this time t, the load combination has been edited to reflect the loading situation
-                # at this point in time. Hence, the fixed end reactions and nodal loads can be calculated
-                # for this point in time
+            # Save into the partitioned force dictionary
+            P_and_FER[case_name] = self._partition(P_and_FER_temp.reshape(total_dof,1),
+                                                   D1_indices,D2_indices)[0]
 
-                # Below is the total load vector
-                F_total[:,i] = self.P(combo_name)[:,0] - self.FER(combo_name)[:,0]
+        # We restore the original load combination
+        self.LoadCombos = original_load_combo
 
-                # And below is the load vector corresponding to the unconstrained dofs
-                F_sub = self._partition(F_total[:,i].reshape(total_dof,1),D1_indices,D2_indices)[0]
-                F[:,i] = F_sub[:,0]
 
-            # Add the seismic forces as well if the ground acceleration has been given
-            # F_s = -[M]{i}a_g where {i} is the influence vector and [M] is the mass matrix
-            # and a_g is the ground acceleration
-            # Interpolation is used again to find the ground acceleration at time t
-            if AgX is not None:
-                if sparse:
-                    AgX_F = -M_total.tocsr() @ influence_X * interp(t, AgX[0, :], AgX[1, :])
-                else:
-                    AgX_F = -M_total @ influence_X * interp(t, AgX[0, :], AgX[1, :])
+        # We create a list of time instances from 0 to the duration of the analysis
+        expanded_time = linspace(0,response_duration,total_steps)
 
-                F_total += AgX_F[0,:]
-                AgX_F_sub = self._partition(AgX_F,D1_indices,D2_indices)[0]
-                F[:,i] += AgX_F_sub[:,0]
+        # We calculate the load vectors for each case for each time instance, and sum them up
 
-            if AgY is not None:
-                if sparse:
-                    AgY_F = -M_total.tocsr() @ influence_Y * interp(t, AgY[0, :], AgY[1, :])
-                else:
-                    AgY_F = -M_total @ influence_Y * interp(t, AgY[0, :], AgY[1, :])
+        # FOR DEBUGGING
+        combo_exists = True
 
-                F_total += AgY_F[0,:]
-                AgY_F_sub = self._partition(AgY_F,D1_indices,D2_indices)[0]
-                F[:,i] += AgY_F_sub[:,0]
+        if combo_exists:
+            for case_name in self.LoadCombos[combo_name].factors.keys():
+                # Extract the time vector from the load profile definition for this load case
+                time_list = self.LoadProfiles[case_name].time
 
-            if AgZ is not None:
-                if sparse:
-                    AgZ_F = -M_total.tocsr() @ influence_Z * interp(t, AgZ[0, :], AgZ[1, :])
-                else:
-                    AgZ_F = -M_total.tocsr() @ influence_Z * interp(t, AgZ[0, :], AgZ[1, :])
+                # Extract the load profile for this load case
+                profile_list = self.LoadProfiles[case_name].profile
 
-                F_total += AgZ_F[0,:]
-                AgZ_F_sub = self._partition(AgZ_F,D1_indices,D2_indices)[0]
-                F[:,i] += AgZ_F_sub[:,0]
+                # Interpolate the load profiles
+                interpolated_profile = interp(expanded_time, time_list, profile_list)
 
-            # Generate the prescribed displacements, velocities and accelerations
-            D2_temp, V2_temp, A2_temp = Analysis._D2(self,time=t)
-            D2[:,i] = D2_temp[:,0]
-            V2[:,i] = V2_temp[:,0]
-            A2[:,i] = A2_temp[:,0]
+                # Multiply the nodal and fixed end forces with the interpolated profile
+                # Then add this contribution to the model's load vectors (partitioned and total)
+                F_total += outer(unp_P_and_FER[case_name], interpolated_profile)
+                F += outer(P_and_FER[case_name], interpolated_profile)
 
-            # Add forces due to prescribed displacements, velocities and accelerations
-            # For the supported damping models, it's not possible to generate the full damping matrix
-            # Hence the contribution of prescribed velocities to the forcing functions is not consindered
-            F[:,i] -= K12 @ D2[:,i] + M12 @ A2[:,i]
+        # If ground acceleration in the X direction has been given, calculate the corresponding forces
+        if AgX is not None:
+            # Interpolate the ground acceleration
+            interpolated_AgX = interp(expanded_time,AgX[0,:],AgX[1,:])
+            if sparse:
+                AgX_F = -M11.tocsr() @ outer(influence_X ,interpolated_AgX)
+                unp_AgX_F = -M_total.tocsr() @ outer(unp_influence_X, interpolated_AgX)
+            else:
+                AgX_F = -M11 @ influence_X @ outer(influence_X ,interpolated_AgX)
+                unp_AgX_F = -M_total @ influence_X @ outer(unp_influence_X, interpolated_AgX)
 
-            # Update the time
-            t += step_size
+            # Add to the models partitioned and total force vectors
+            F_total += unp_AgX_F
+            F += AgX_F
 
-            # Restore the time load combination to the original one
-            self.LoadCombos = copy.deepcopy(original_load_combo)
+        # If ground acceleration in the X direction has been given, calculate the corresponding forces
+        if AgY is not None:
+            # Interpolate the ground acceleration
+            interpolated_AgY = interp(expanded_time,AgY[0,:],AgY[1,:])
+            if sparse:
+                AgY_F = -M11.tocsr() @ outer(influence_Y ,interpolated_AgY)
+                unp_AgY_F = -M_total.tocsr() @ outer(unp_influence_Y, interpolated_AgY)
+            else:
+                AgY_F = -M11 @ influence_Y @ outer(influence_Y ,interpolated_AgY)
+                unp_AgY_F = -M_total @ influence_Y @ outer(unp_influence_Y, interpolated_AgY)
+
+            # Add to the models partitioned and total force vectors
+            F_total += unp_AgY_F
+            F += AgY_F
+
+        # If ground acceleration in the X direction has been given, calculate the corresponding forces
+        if AgZ is not None:
+            # Interpolate the ground acceleration
+            interpolated_AgZ = interp(expanded_time,AgZ[0,:],AgZ[1,:])
+            if sparse:
+                AgZ_F = -M11.tocsr() @ outer(influence_Z ,interpolated_AgZ)
+                unp_AgZ_F = -M_total.tocsr() @ outer(unp_influence_Z, interpolated_AgZ)
+            else:
+                AgZ_F = -M11 @ influence_Z @ outer(influence_Z ,interpolated_AgZ)
+                unp_AgZ_F = -M_total @ influence_Z @ outer(unp_influence_Z, interpolated_AgZ)
+
+            # Add to the models partitioned and total force vectors
+            F_total += unp_AgZ_F
+            F += AgZ_F
 
         # Save the total global force
         self.F_TOTAL = F_total
+
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
@@ -3797,7 +3824,7 @@ class FEModel3D():
         else:
             v0_phy, v02 = self._partition(v0, D1_indices, D2_indices)
 
-        # Find the corresponding quantities the modal coordinate system if modal superposition method is requested
+        # Find the corresponding quantities in the modal coordinate system if modal superposition method is requested
         if analysis_method == 'modal':
             d0_n = solve(Z.T @ Z, Z.T @ d0_phy)
             v0_n = solve(Z.T @ Z, Z.T @ v0_phy)
@@ -3814,9 +3841,6 @@ class FEModel3D():
         try:
             if analysis_method == 'direct':
 
-                import time
-                start_time = time.time()
-
                 TIME, D1, V1, A1 = \
                      Analysis._transient_solver_linear_direct(K=K11, M=M11,d0=d0_phy,v0=v0_phy,
                                                               F0=F[:,0],F = F,step_size=step_size,
@@ -3826,9 +3850,7 @@ class FEModel3D():
                                                               taylor_alpha=0, wilson_theta=1,
                                                               rayleigh_alpha=r_alpha, rayleigh_beta=r_beta,
                                                               sparse=sparse,log=log)
-                end_time = time.time()
-                execution_time = end_time - start_time
-                print("\nExecution time:", execution_time)
+
             else:
                 TIME, D1, V1, A1 = \
                     Analysis._transient_solver_linear_modal(d0_n=d0_n, v0_n=v0_n, F0_n=F_n[:, 0],
