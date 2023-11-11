@@ -96,9 +96,10 @@ values = 9.81 * numpy.array(values)
 # Create a 2D array with 'values' in the first row and 'time' in the second row
 ground_acceleration = numpy.vstack((time, values))
 #model.def_node_disp('C','DY',0.02)
-model.analyze_modal(num_modes=5,sparse=True)
+model.analyze_modal(num_modes=5,sparse=True, log=True)
 
-#print(model.MASS_PARTICIPATION_PERCENTAGES())
+print('Mass partitions: ',model.MASS_PARTICIPATION_PERCENTAGES())
+
 damping = dict(constant_modal_damping = 0.02)
 
 model.analyze_harmonic(harmonic_combo='H combo',f1 = 40, f2=150,f_div=1000,sparse=True,
@@ -115,7 +116,7 @@ model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
                                             log=True, sparse=True)
 
 
-#print(model.NATURAL_FREQUENCIES())
+print('Natural Frequencies: ',model.NATURAL_FREQUENCIES())
 
 import matplotlib.pyplot as plt
 
@@ -153,6 +154,6 @@ from PyNite.Visualization import render_model
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
-             render_loads=True,
+             render_loads=False,
              annotation_size=0.05,
-             combo_name=model.THA_combo_name)
+             combo_name=model.Modal_combo_name)

@@ -4,6 +4,7 @@ from PyNite import FEModel3D
 
 # MODELLING
 # Instatiate analysis model
+"""
 model = FEModel3D()
 
 # Material definition
@@ -171,7 +172,7 @@ with open('full_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-
+"""
 
 # RETRIEVE MODEL
 import pickle
@@ -237,13 +238,14 @@ file.close()
 
 #TIME HISTORY ANALYSIS
 
-"""
+damping = dict(r_alpha = 0.01, r_beta = 0.01)
 model.analyze_linear_time_history_newmark_beta(
     analysis_method='direct',
     AgY=ground_acceleration,
     step_size=0.01,
     response_duration=50,
-    log=True
+    log=True,
+    damping_options=damping
 
 ) 
 
@@ -251,7 +253,7 @@ with open('solved_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-"""
+
 from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, THAResultsModelBuilder
 #model_builder = ModalResultsModelBuilder('solved_model.pickle')
 model_builder = THAResultsModelBuilder(saved_model='solved_model.pickle')
@@ -261,12 +263,13 @@ print('MODEL BUILDER COMPLETE')
 
 from matplotlib import pyplot as plt
 d = []
+
 time_for_plot = linspace(0,49,5000)
 
 
 for t in time_for_plot:
    solved_model = model_builder.get_model(time=t,response_type='D')
-   d.append(solved_model.Nodes['N122'].DY['THA combo'])
+   d.append(1000*solved_model.Nodes['N122'].DY['THA combo'])
 
 plt.plot(time_for_plot, d)
 #plt.plot(solved_model.TIME_THA(),solved_model.DISPLACEMENT_THA()[solved_model.Nodes['N122'].ID * 6 + 1,:])
@@ -283,10 +286,13 @@ savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments
 #print(solved_model.NATURAL_FREQUENCIES())
 from PyNite.Visualization import render_model
 
-
+solved_model = model_builder.get_model(time=5.136, response_type='D')
 renderer = render_model(solved_model,
+                        color_map='Txy',
                         combo_name='THA combo',
                         deformed_shape=True,
                         deformed_scale=100,
                         annotation_size=0.1,
                         render_loads=False)
+
+print(solved_model.LoadCombos)

@@ -1,15 +1,13 @@
 import sys
-import time
+
 from math import isclose, ceil
 
 from numpy.lib.function_base import interp, gradient
-from scipy.sparse import csc_matrix
 
 from PyNite import FEModel3D
 from PyNite.LoadCombo import LoadCombo
 
-from numpy import array, atleast_2d, zeros, subtract, matmul, divide, seterr, nanmax
-from numpy.linalg import solve
+from numpy import subtract, matmul, divide, seterr, nanmax
 
 from numpy import array, atleast_2d, zeros, diag, ones, identity, linspace
 from numpy.linalg import solve

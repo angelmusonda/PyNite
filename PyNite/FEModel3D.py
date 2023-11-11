@@ -2,20 +2,13 @@
 from os import rename
 import warnings
 import copy
-from math import isclose, ceil
+from math import ceil
 
-
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d
-
-from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag, \
+from numpy import array, zeros, matmul, subtract, atleast_2d, argsort, cos, sin, imag, \
     outer
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 
-from numpy.linalg import solve
-from scipy.linalg import inv
-from scipy.sparse.linalg import eigs, eigsh
-from scipy.sparse import csr_matrix, lil_matrix
-from scipy.interpolate import CubicSpline
+from numpy.linalg import solve, eig
 
 from PyNite.DisplacementProfile import DisplacementProfile
 from PyNite.Node3D import Node3D
@@ -34,7 +27,7 @@ from PyNite.LoadProfile import LoadProfile
 
 from PyNite.PyNiteExceptions import ResultsNotFoundError, InputOutOfRangeError, ParameterIncompatibilityError, \
     DefinitionNotFoundError, DampingOptionsKeyWordError, DynamicLoadNotDefinedError
-
+import warnings
 
 # %%
 class FEModel3D():
@@ -1815,7 +1808,8 @@ class FEModel3D():
                     elif type_mass_matrix == 'lumped':
                         member_M = member.M_HRZ()
                     else:
-                        raise ValueError('Provided input '+ str(type_mass_matrix)+ ' is incorrect. Possible values are "consistent" and "lumped"')
+                        raise ValueError('Provided input '+ str(type_mass_matrix) +
+                                         ' is incorrect. Allowed values are "consistent" and "lumped"')
 
 
                     # Step through each term in the member's mass matrix
@@ -1860,8 +1854,8 @@ class FEModel3D():
             elif type_mass_matrix == 'lumped':
                 quad_M = quad.M_HRZ()
             else:
-                raise ValueError('Provided input '+ str(type_mass_matrix)+
-                                 ' is incorrect. Possible values are "consistent" and "lumped"')
+                raise ValueError('Provided input '+ str(type_mass_matrix) +
+                                 ' is incorrect. Allowed values are "consistent" and "lumped"')
 
             # Step through each term in the quadrilateral's mass matrix
             # 'a' & 'b' below are row/column indices in the quadrilateral's mass matrix
@@ -1918,7 +1912,7 @@ class FEModel3D():
                 plate_M = plate.M_HRZ()
             else:
                 raise ValueError('Provided input ' + str(type_mass_matrix)
-                                 + ' is incorrect. Possible values are "consistent" and "lumped"')
+                                 + ' is incorrect. Allowed values are "consistent" and "lumped"')
 
             # Step through each term in the plate's mass matrix
             # 'a' & 'b' below are row/column indices in the plate's mass matrix
@@ -2794,6 +2788,15 @@ class FEModel3D():
         :raises Exception: Occurs when a singular stiffness matrix is found. This indicates an unstable structure has been modeled.
         """
 
+        # Check input
+        if num_modes < 1:
+            num_modes = 1
+            warnings.warn('num_modes only takes on positive integers. Model will be analyzed for one mode')
+
+        if type_of_mass_matrix not in ['consistent', 'lumped']:
+            type_of_mass_matrix = 'lumped'
+            warnings.warn('type_of_mass_matrix should be "lumped" or "consistent". Default option "lumped" will be used.')
+
         if log:
             print('+-------------------+')
             print('| Analyzing: Modal  |')
@@ -2803,7 +2806,7 @@ class FEModel3D():
         if sparse == True:
             from scipy.sparse.linalg import spsolve
 
-        # Add a modal load combination if not present
+        # Add a modal load combination under which results will be shown
         if 'Modal Combo' not in self.LoadCombos:
             self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 0})
 
@@ -2815,16 +2818,13 @@ class FEModel3D():
 
         # In the context of mode shapes, D2 should just be zeroes
         D2 = zeros((len(D2), 1))
+
         # Get the partitioned global stiffness and mass matrix
         combo_name = "Modal Combo"
         if sparse == True:
             K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, check_stability, sparse).tolil(), D1_indices,D2_indices)
             # We will not check for stability of the mass matrix. check_stability will be set to False
-            # This is because for the shell elements, the mass matrix has zeroes
-            # on the rotation about z-axis DOFs
-            # Only the stiffness matrix is modified to account for this 'drilling' effect
-            # ref: Boutagouga, D., & Djeghaba, K. (2016). Nonlinear dynamic co-rotational
-            # formulation for membrane elements with in-plane drilling rotational degree of freedom. Engineering Computations, 33(3).
+            # This is because the check is already performed for the stiffness matrix
             M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(), D1_indices, D2_indices)
         else:
             K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, check_stability, sparse), D1_indices,
@@ -2838,38 +2838,28 @@ class FEModel3D():
         eigVal = None  # Vector to store eigenvalues
         eigVec = None  # Matrix to store eigenvectors
 
-        # Make sure the required number of modes is less or equal to the total number of modes
+        # Make sure the required number of modes is less or equal to possible number of modes
         num_modes = min(K11.shape[0],num_modes)
 
         if K11.shape == (0, 0):
-            if log: print('The model does not have any degree of freedom')
-        elif num_modes < 1:
-            raise Exception("The model does not have any degree of freedom")
+            if log: print('The model does not have any node free to translate or rotate')
         else:
             try:
-                if sparse == True:
+                if sparse:
                     # The partitioned matrices are in `lil` format, which is great
                     # for memory, but slow for mathematical operations. The stiffness
                     # matrix will be converted to `csr` format for mathematical operations.
-                    if num_modes == K11.shape[0]:
-                        # If all mode shapes are required, the matrices are converted to dense
-                        # and format in order to use eig(), the structure is probably small.
-                        from scipy.linalg import eig
-                        eigVal, eigVec = eig(a=K11.tocsr().toarray(), b=M11.tocsr().toarray())
-
-                    else:
-                        # Calculate only the first num_modes modes.
-                        eigVal, eigVec = eigs(tol=tol, A=K11.tocsr(), k=num_modes, M=M11.tocsr(), sigma=-1)
+                    # Calculate only the first requested for modes.
+                    from scipy.sparse.linalg import eigs
+                    eigVal, eigVec = eigs(tol=tol, A=K11.tocsr(), k=num_modes, M=M11.tocsr(), sigma=-1)
 
                 else:
-                    if num_modes == K11.shape[0]:
-                        # If all mode shapes are required, the matrices are converted to dense
-                        # and format in order to use eig(), the structure is probably small.
-                        from scipy.linalg import eig
-                        eigVal, eigVec = eig(a=K11.tocsr().toarray(), b=M11.tocsr().toarray())
-                    else:
-                        # To calculate only some modes, convert to sparse and use eigs()
-                        eigVal, eigVec = eigs(tol=tol, A=csr_matrix(K11), k=num_modes, M=csr_matrix(M11), sigma=-1)
+                    warnings.warn('Program will calculate all modes. This is not ideal. Set sparse = True'
+                                  'to use a more efficient eigenvalue solver')
+                    # Use slow numpy eig solver
+                    # Find all eigen values
+                    eigVal, eigVec = eig(solve(a=M11, b=K11))
+
             except:
                 raise Exception(
                     'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
@@ -2983,7 +2973,7 @@ class FEModel3D():
             Mass_Z = sum(M11 @ influence_Z)
 
         # Calculate the mass normalised mode shapes
-        Z = self._mass_normalised_mode_shapes(M11,self._eigen_vectors)
+        Z = self._mass_normalised_mode_shapes(M11,self._eigen_vectors, sparse)
 
         # Calculate the modal participation factors
         MPF_X = Z.T @ M11 @ influence_X
@@ -3008,6 +2998,8 @@ class FEModel3D():
         # Flag the model as solved
         self.DynamicSolution['Modal'] = True
 
+        # Save the name of the load combination under which the analysis has been done
+        self.Modal_combo_name = combo_name
         return self._mass_participation
 
 
@@ -3105,7 +3097,7 @@ class FEModel3D():
             M_total = self.M(harmonic_combo, log, False, sparse, type_of_mass_matrix)
 
         # Get the mass normalised mode shape matrix
-        Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
+        Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors, sparse)
 
         # Get the partitioned global fixed end reaction vector
         FER1, FER2 = Analysis._partition(self,self.FER(harmonic_combo), D1_indices, D2_indices)
@@ -3536,7 +3528,7 @@ class FEModel3D():
         if combo_name==None:
             combo_exists = False
             combo_name = 'THA combo'
-            self.LoadCombos[combo_name] = LoadCombo(name=combo_name, factors={'Case 1':1}, combo_tags='THA')
+            self.LoadCombos[combo_name] = LoadCombo(name=combo_name, factors={'Case 1':0}, combo_tags='THA')
             self.LoadProfiles['Case 1'] = LoadProfile(load_case_name='Case 1',time = [0,response_duration],profile=[0,0])
 
         # Calculate the required number of time history steps
@@ -3693,6 +3685,12 @@ class FEModel3D():
         Analysis._prepare_model(self)
         D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
 
+        if log:
+            print('')
+            print('+-------------------------+')
+            print('| Analyzing: Time History |')
+            print('+-------------------------+')
+
         # Get the partitioned matrices
         if sparse == True:
             K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
@@ -3792,9 +3790,6 @@ class FEModel3D():
 
         # We calculate the load vectors for each case for each time instance, and sum them up
 
-        # FOR DEBUGGING
-        combo_exists = True
-
         if combo_exists:
             for case_name in self.LoadCombos[combo_name].factors.keys():
                 # Extract the time vector from the load profile definition for this load case
@@ -3862,7 +3857,7 @@ class FEModel3D():
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
-            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
+            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors, sparse)
 
             # Get the natural frequencies
             w = 2 * pi * self.NATURAL_FREQUENCIES()
@@ -3886,13 +3881,6 @@ class FEModel3D():
             F_n = Z.T @ F
 
         # Run the analysis
-
-        if log:
-            print('')
-            print('+-------------------------+')
-            print('| Analyzing: Time History |')
-            print('+-------------------------+')
-
         try:
             if analysis_method == 'direct':
 
@@ -4397,7 +4385,7 @@ class FEModel3D():
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
-            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
+            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors, sparse)
 
             # Get the natural frequencies
             w = 2 * pi * self.NATURAL_FREQUENCIES()
@@ -4899,7 +4887,7 @@ class FEModel3D():
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
-            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors)
+            Z = self._mass_normalised_mode_shapes(M11, self._eigen_vectors, sparse)
 
             # Get the natural frequencies
             w = 2 * pi * self.NATURAL_FREQUENCIES()
@@ -5054,7 +5042,7 @@ class FEModel3D():
         self.DynamicSolution['Time History'] = True
 
 
-    def _mass_normalised_mode_shapes(self, m, modes):
+    def _mass_normalised_mode_shapes(self, m, modes, sparse = True):
         """
         Normalises the Mode shapes with respect to the mass matrix
         :param m: Mass matrix
@@ -5064,10 +5052,12 @@ class FEModel3D():
         """
         if isinstance(m, ndarray):
             Mr = modes.T @ m @ modes
-        elif isinstance(m, lil_matrix):
-            Mr = modes.T @ m.tocsr() @ modes
-        elif isinstance(m, csr_matrix):
-            Mr = modes.T @ m @ modes
+        elif sparse:
+            from scipy.sparse import csr_matrix, lil_matrix
+            if isinstance(m, lil_matrix):
+                Mr = modes.T @ m.tocsr() @ modes
+            elif isinstance(m, csr_matrix):
+                Mr = modes.T @ m @ modes
         else:
             raise ValueError("Invalid input type for 'm'. Expected ndarray, lil_matrix, or csr_matrix.")
 
