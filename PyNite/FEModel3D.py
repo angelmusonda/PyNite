@@ -2851,21 +2851,41 @@ class FEModel3D():
                     # matrix will be converted to `csr` format for mathematical operations.
                     # Calculate only the first requested for modes.
                     from scipy.sparse.linalg import eigs
-                    eigVal, eigVec = eigs(tol=tol, A=K11.tocsr(), k=num_modes, M=M11.tocsr(), sigma=-1)
+                    from scipy.linalg import eig
+                    if K11.shape[0] == num_modes:
+                        # Use eig which returns all eigenvalues
+                        eigVal, eigVec = eig(a = K11.tocsr().toarray(), b =M11.tocsr().toarray())
+                    else:
+                        # Use eigs which returns only the desired eigenvalues
+                        eigVal, eigVec = eigs(tol=tol, A=K11.tocsr(), k=num_modes, M=M11.tocsr(), sigma=-1)
 
                 else:
-                    warnings.warn('Program will calculate all modes. This is not ideal. Set sparse = True'
-                                  'to use a more efficient eigenvalue solver')
-                    # Use slow numpy eig solver
+                    warnings.warn('The program will calculate all modes, then extract only the requested for number.'
+                                  'This is not efficient. To be more efficient, set sparse = True'
+                                  'to use a more efficient scipy.sparse.linalg.eigs() solver')
+
                     # Find all eigen values
+                    from numpy.linalg import eig
                     eigVal, eigVec = eig(solve(a=M11, b=K11))
+
+                    # Sort the eigenvalues in ascending order
+                    sort_indices = argsort(eigVal)
+                    eigVal = eigVal[sort_indices]
+
+                    # Sort the eigenvectors as well based on the sort indices above
+                    eigVec = eigVec[:, sort_indices]
+
+                    # Extract the first few modes requested for
+                    eigVal = eigVal[:num_modes]
+                    eigVec = eigVec[:,0:num_modes]
+                    print(eigVec.shape)
 
             except:
                 raise Exception(
                     'The stiffness matrix is singular, which implies rigid body motion. The structure is unstable. Aborting analysis.')
 
         # The functions used to calculate the eigenvalues and eigenvectors are iterative
-        # Hence they have a tendence to return complex numbers even though we do not expect
+        # Hence they have a tendency to return complex numbers even though we do not expect
         # results of that nature in simple modal analysis
         # The complex parts of the results are very small, so we will only extract the real part
 

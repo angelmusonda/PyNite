@@ -96,7 +96,7 @@ values = 9.81 * numpy.array(values)
 # Create a 2D array with 'values' in the first row and 'time' in the second row
 ground_acceleration = numpy.vstack((time, values))
 #model.def_node_disp('C','DY',0.02)
-model.analyze_modal(num_modes=5,sparse=True, log=True)
+model.analyze_modal(num_modes=100,sparse=True, log=True)
 
 print('Mass partitions: ',model.MASS_PARTICIPATION_PERCENTAGES())
 
