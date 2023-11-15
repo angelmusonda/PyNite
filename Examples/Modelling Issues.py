@@ -264,7 +264,7 @@ print('MODEL BUILDER COMPLETE')
 from matplotlib import pyplot as plt
 d = []
 
-time_for_plot = linspace(0,49,5000)
+time_for_plot = linspace(0,50,5000)
 
 
 for t in time_for_plot:

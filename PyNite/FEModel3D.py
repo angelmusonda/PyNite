@@ -5,7 +5,7 @@ import copy
 from math import ceil
 
 from numpy import array, zeros, matmul, subtract, atleast_2d, argsort, cos, sin, imag, \
-    outer
+    outer, concatenate
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 
 from numpy.linalg import solve, eig
@@ -3713,18 +3713,16 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse).tolil(), D1_indices,D2_indices)
-            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil(),
-                                                 D1_indices, D2_indices)
             K_total = self.K(combo_name, log, False, sparse).tolil()
             M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
+            K11, K12, K21, K22 = Analysis._partition(self, K_total, D1_indices,D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self, M_total, D1_indices, D2_indices)
+
         else:
-            K11, K12, K21, K22 = Analysis._partition(self,self.K(combo_name, log, False, sparse), D1_indices, D2_indices)
-            M11, M12, M21, M22 = Analysis._partition(self,self.M(combo_name, log, False, sparse, type_of_mass_matrix),
-                                                 D1_indices, D2_indices)
             K_total = self.K(combo_name, log, False, sparse)
             M_total = self.M(combo_name, log, False, sparse, type_of_mass_matrix)
-
+            K11, K12, K21, K22 = Analysis._partition(self, K_total, D1_indices, D2_indices)
+            M11, M12, M21, M22 = Analysis._partition(self, M_total, D1_indices, D2_indices)
 
         if log:
             print('- Building the loading time history')
@@ -3806,7 +3804,12 @@ class FEModel3D():
 
 
         # We create a list of time instances from 0 to the duration of the analysis
-        expanded_time = linspace(0,response_duration,total_steps)
+        expanded_time = linspace(
+            0,
+            response_duration - response_duration % step_size,
+            int(total_steps - 1)
+        )
+        expanded_time = concatenate([expanded_time, array([response_duration])])
 
         # We calculate the load vectors for each case for each time instance, and sum them up
 
@@ -3904,7 +3907,7 @@ class FEModel3D():
         try:
             if analysis_method == 'direct':
 
-                TIME, D1, V1, A1 = \
+                D1, V1, A1 = \
                      Analysis._transient_solver_linear_direct(K=K11, M=M11,d0=d0_phy,v0=v0_phy,
                                                               F0=F[:,0],F = F,step_size=step_size,
                                                               required_duration=response_duration,
@@ -3915,7 +3918,7 @@ class FEModel3D():
                                                               sparse=sparse,log=log)
 
             else:
-                TIME, D1, V1, A1 = \
+                D1, V1, A1 = \
                     Analysis._transient_solver_linear_modal(d0_n=d0_n, v0_n=v0_n, F0_n=F_n[:, 0],
                                                             F_n=F_n, step_size=step_size,
                                                             required_duration=response_duration,
@@ -3988,7 +3991,7 @@ class FEModel3D():
                 A[node.ID * 6 + 5, :] = A1[D1_indices.index(node.ID * 6 + 5), :]
 
         # Save the responses
-        self._TIME_THA = TIME
+        self._TIME_THA = expanded_time
         self._DISPLACEMENT_THA = D
         self._VELOCITY_THA = V
         self._ACCELERATION_THA = A

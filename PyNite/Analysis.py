@@ -1630,9 +1630,6 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
     # Invert the CCM
     CCM = 1/CCM
 
-    # Initialise the current time
-    current_time = 0
-
     # Calculate the required number of steps
     total_steps = ceil(required_duration/step) + 1
 
@@ -1640,9 +1637,6 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
     D_n = zeros((size, total_steps))
     V_n = zeros((size, total_steps))
     A_n = zeros((size, total_steps))
-
-    # Initialise an array to keep track of time
-    TIME = zeros(total_steps)
 
     # Store the initial values of displacements, velocities and accelerations
     D_n[:,0] = d0_n
@@ -1668,17 +1662,13 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
         V_n[:,i+1] = V_n[:,i] + step * (1-gamma) * A_n[:,i] + gamma * step * A_n[:,i+1]
         D_n[:,i+1] = D_n[:,i] + step * V_n[:,i] + step**2 * (0.5-beta) * A_n[:,i] + beta * step**2 * A_n[:,i+1]
 
-        # Increment time
-        current_time += step
-        # Save time
-        TIME[i+1] = current_time
 
     # Calculate the physical coordinates
     A = mass_normalised_eigen_vectors @ A_n
     V = mass_normalised_eigen_vectors @ V_n
     D = mass_normalised_eigen_vectors @ D_n
 
-    return TIME, D, V, A
+    return D, V, A
 
 
 def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
@@ -1773,9 +1763,6 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
         Q_CCM, R_CCM = qr(CCM)
 
 
-    # Initialise the current time
-    current_time = 0
-
     # Calculate the required number of steps
     total_steps = ceil(required_duration/step) + 1
 
@@ -1784,8 +1771,6 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     V = zeros((size, total_steps))
     A = zeros((size, total_steps))
 
-    # Initialise an array to keep track of time
-    TIME = zeros(total_steps)
 
     # Store the initial values of displacements, velocities and accelerations
     D[:,0] = d0
@@ -1793,7 +1778,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     A[:,0] = a0
 
     if sparse:
-        for i in range(total_steps - 1):
+        for i in range(total_steps-1):
             if log:
                 update_progress(i,total_steps-2,'- Analysis Progress')
 
@@ -1812,15 +1797,10 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
             V[:, i + 1] = V[:, i] + step * (1 - gamma) * A[:, i] + gamma * step * A[:, i + 1]
             D[:, i + 1] = D[:, i] + step * V[:, i] + step ** 2 * (0.5 - beta) * A[:, i] + beta * step ** 2 * A[:, i + 1]
 
-            # Increment time
-            current_time += step
-
-            # Save time
-            TIME[i+1] = current_time
 
     else:
 
-        for i in range(total_steps - 1):
+        for i in range(total_steps-1):
             if log:
                 update_progress(i, total_steps - 2, '- Analysis Progress')
 
@@ -1840,13 +1820,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
             V[:, i + 1] = V[:, i] + step * (1 - gamma) * A[:, i] + gamma * step * A[:, i + 1]
             D[:, i + 1] = D[:, i] + step * V[:, i] + step ** 2 * (0.5 - beta) * A[:, i] + beta * step ** 2 * A[:, i + 1]
 
-            # Increment time
-            current_time += step
-
-            # Save time
-            TIME[i+1] = current_time
-
-    return TIME, D, V, A
+    return D, V, A
 
 def update_progress(step, total, process_name):
     progress = int(100 * step / total)
