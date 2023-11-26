@@ -1,6 +1,11 @@
 # %%
+
 from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, vstack, hstack, allclose
 from numpy.linalg import inv
+
+from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, transpose
+from numpy.linalg import inv, solve
+
 from math import isclose
 from PyNite.BeamSegZ import BeamSegZ
 from PyNite.BeamSegY import BeamSegY
@@ -34,6 +39,8 @@ class Member3D():
         self.material = material  # The element's material
         self.E = model.Materials[material].E   # The modulus of elasticity of the element
         self.G = model.Materials[material].G   # The shear modulus of the element
+        self.rho = model.Materials[material].rho   # The density of the material
+        
 
         # Section properties
         if section_name is None:
@@ -134,6 +141,7 @@ class Member3D():
         # Return the local stiffness matrix, with end releases applied
         return k_Condensed
 
+
 #%%
     def _k_unc(self):
         """
@@ -221,6 +229,7 @@ class Member3D():
 
         # Return the local geomtric stiffness matrix, with end releases applied
         return kg_Condensed
+
     
     def km(self, combo_name='Combo 1', push_combo='Push', step_num=1):
         """Returns the local plastic reduction matrix for the element.
@@ -292,6 +301,177 @@ class Member3D():
         G = hstack(Gi, Gj)
 
         return inv(G.T() @ ke @ G) @ G.T() @ ke @ d
+
+
+
+#%%
+    def m(self):
+        """
+        Returns the condensed (and expanded) local mass matrix for the member.
+        """
+
+        # Partition the local stiffness matrix as 4 submatrices in
+        # preparation for static condensation
+        k11, k12, k21, k22 = self._partition(self._k_unc())
+        m11, m12, m21, m22 = self._partition(self._m_unc())
+        # Calculate the condensed local mass matrix
+        # We are avoiding inv() by using solve(), since it is more stable
+        # inv(A)*B is the same as solve(A,B)
+        m_Condensed = subtract(m11,
+                               matmul(m12, solve(k22, k21)),
+                               matmul(transpose(solve(k22, k21)),
+                                      subtract(m21, matmul(m22, solve(k22, k21))))
+                               )
+        # Expand the condensed local mass matrix
+        i = 0
+        for DOF in self.Releases:
+
+            if DOF == True:
+                m_Condensed = insert(m_Condensed, i, 0, axis=0)
+                m_Condensed = insert(m_Condensed, i, 0, axis=1)
+
+            i += 1
+
+        # Return the local stiffness matrix, with end releases applied
+        return m_Condensed
+#%%
+    def m_hrz(self):
+        """
+        Returns the condensed (and expanded) hrz lumped local mass matrix for the member.
+        """
+
+        # Partition the local stiffness matrix as 4 submatrices in
+        # preparation for static condensation
+        k11, k12, k21, k22 = self._partition(self._k_unc())
+        m11, m12, m21, m22 = self._partition(self._m_unc_hrz())
+        # Calculate the condensed local mass matrix
+        # We are avoiding inv() by using solve(), since it is more stable
+        # inv(A)*B is the same as solve(A,B)
+        m_Condensed = subtract(m11,
+                               matmul(m12, solve(k22, k21)),
+                               matmul(transpose(solve(k22, k21)),
+                                      subtract(m21, matmul(m22, solve(k22, k21))))
+                               )
+        # Expand the condensed local mass matrix
+        i = 0
+        for DOF in self.Releases:
+
+            if DOF == True:
+                m_Condensed = insert(m_Condensed, i, 0, axis=0)
+                m_Condensed = insert(m_Condensed, i, 0, axis=1)
+
+            i += 1
+
+        # Return the local stiffness matrix, with end releases applied
+        return m_Condensed
+
+    #%%
+    def _m_unc(self):
+        """
+        Returns the uncondensed local mass matrix for the member
+        """
+
+        #Get the properties needed to form the member local mass matrix
+        Ix = self.Iy + self.Iz
+        A = self.A
+        L = self.L()
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
+
+        #Create the uncondensed local mass matrix
+        #Ref: S. S. Quek, G.R. Liu - The Finite Element Method_ A Practical Course-Butterworth-Heinemann (2003) Page 429
+        m = array([[rho*A*L/3,      0,      0,      0,      0,      0, rho*A*L/6,      0,      0,     0,     0,     0],
+                   [0,  13*rho*A*L/35,  0,  0,  0, 11*rho*A*L**2/210,  0, 9*rho*A*L/70,  0,  0, 0, -13*rho*A*L**2/420],
+                   [0,  0, 13*rho*A*L/35,  0, -11*rho*A*L**2/210,  0,  0,  0, 9*rho*A*L/70,  0, 13*rho*A*L**2/420,  0],
+                   [0,      0,      0, rho*L*Ix/3,       0,       0,       0,       0,     0,  rho*L*Ix/6,     0,     0],
+                   [0,  0, -11*rho*A*L**2/210,  0, rho*A*L**3/105, 0, 0, 0, -13*rho*A*L**2/420, 0, -rho*A*L**3/140, 0],
+                   [0,  11*rho*A*L**2/210,  0,  0,  0, rho*A*L**3/105, 0, 13*rho*A*L**2/420, 0, 0, 0, -rho*A*L**3/140],
+                   [rho*A*L/6,      0,      0,      0,      0,      0, rho*A*L/3,      0,      0,      0,     0,    0],
+                   [0, 9*rho*A*L/70,  0,  0,  0, 13*rho*A*L**2/420,  0, 13*rho*A*L/35,  0,  0,  0, -11*rho*A*L**2/210],
+                   [0,  0, 9*rho*A*L/70,  0, -13*rho*A*L**2/420,  0,  0,  0, 13*rho*A*L/35,  0,  11*rho*A*L**2/210, 0],
+                   [0,      0,      0, rho*L*Ix/6,      0,       0,      0,      0,      0, rho*L*Ix/3,       0,      0],
+                   [0, 0, 13*rho*A*L**2/420,  0, -rho*A*L**3/140,  0,  0,  0, 11*rho*A*L**2/210, 0, rho*A*L**3/105, 0],
+                   [0,  -13*rho*A*L**2/420,  0, 0, 0, -rho*A*L**3/140, 0, -11*rho*A*L**2/210, 0, 0, 0, rho*A*L**3/105]
+                   ])
+
+        # Return the uncondensed local mass matrix
+        return m
+
+#%%
+    def _m_unc_hrz(self):
+        """
+        Returns the uncondensed hrz lumped local mass matrix for the member
+        HRZ lumping scheme is described in the reference below
+        Hinton, E., Rock, T., & Zienkiewicz, O. C. (1976). A note on mass lumping and related processes in the finite element method. Earthquake Engineering & Structural Dynamics, 4(3). https://doi.org/10.1002/eqe.4290040305
+
+        """
+
+        #Get the properties needed to form the member local mass matrix
+        Ix = self.Iy + self.Iz
+        A = self.A
+        L = self.L()
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
+
+        #Create the uncondensed hrz local mass matrix
+
+        m = array([[rho*A*L/2,    0,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,    rho*A*L/2,     0,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,   rho*A*L/2,     0,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,    rho*L*Ix/3,      0,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0, rho*A*L**3/78,     0,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0, rho*A*L**3/78,    0,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,   rho*A*L/2,    0,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,  rho*A*L/2,    0,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,  rho*A*L/2,     0,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,   rho*L*Ix/3,       0,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,  rho*A*L**3/78,    0],
+                   [0,      0,    0,     0,     0,      0,     0,    0,    0,    0,     0, rho*A*L**3/78]
+                   ])
+
+        # Return the uncondensed local mass matrix
+        return m
+
+#%%
+    def rho_increased(self, rho):
+        """
+        Accounts for load cases selected as mass cases by increasing the density. All force mass cases are distributed
+        every along the entire length of the member
+
+        :param rho: The actual material density
+        :type rho: float
+        """
+
+        # Initialise variables to sum all loads
+        total_point_mass = 0
+        total_dist_mass = 0
+
+        # Iterate through each item in the dictionary of mass cases
+        for case in self.model.MassCases.keys():
+            gravity = self.model.MassCases[case].gravity
+            factor = self.model.MassCases[case].factor
+            # Iterate through each item in the list of point load cases
+            for pt_case in self.PtLoads:
+                if case == pt_case[3]:
+                    # If load case is listed as a mass case, then consider it
+                    if pt_case[0] == 'FZ' and pt_case[1] <= 0:
+                        # If load case is in the FZ down direction, the add it to the total mass load
+                        total_point_mass += factor * abs(pt_case[1]) / gravity
+                    else:
+                        # If the specified mass case has a different direction than FZ, raise an error
+                        raise Exception('Direction error: Mass cases should have a direction of "FZ"')
+
+            # Do the same for distributed loads
+            for dist_case in self.DistLoads:
+                if case == dist_case[5]:
+                    if dist_case[0] == 'FZ' and dist_case[1] <= 0 and dist_case[2] <= 0:
+                        # We are using the average intensity of the distributed load
+                        total_dist_mass += factor * (self.L()* abs(dist_case[1] + dist_case[2])/2)/gravity
+                    else:
+                        raise Exception('Direction error: Mass cases should have a direction of "FZ"')
+
+        return rho + (total_point_mass + total_dist_mass)/(self.A * self.L())
+
 
 #%%
     def fer(self, combo_name='Combo 1'):
@@ -575,14 +755,26 @@ class Member3D():
         # Calculate and return the stiffness matrix in global coordinates
         return matmul(matmul(inv(self.T()), self.k()), self.T())
 
-    def Kg(self, P=0.0):
-        """Returns the global geometric stiffness matrix for the member. Used for P-Delta analysis.
 
-        :param P: Member axial load. Defaults to 0.
-        :type P: float, optional
-        :return: The global geometric stiffness matrix for the member.
-        :rtype: array
-        """
+#%%
+    # Member global consistent mass matrix
+    def M(self):
+        # Calculates and returns the mass matrix in global coordinates
+        # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
+        # practice for numerical computation
+        return matmul(solve(self.T(), self.m()), self.T())
+
+#%%
+    # Member global HRZ lumped mass matrix
+    def M_HRZ(self):
+        # Calculates and returns the mass matrix in global coordinates
+        # Again, we are using solve(A,B) instead of inv(A)*B, this is the best
+        # practice for numerical computation
+        return matmul(solve(self.T(), self.m_hrz()), self.T())
+
+#%%
+    # Member global geometric stiffness matrix
+    def Kg(self, P=0):
         
         # Calculate and return the geometric stiffness matrix in global coordinates
         return matmul(matmul(inv(self.T()), self.kg(P)), self.T())
