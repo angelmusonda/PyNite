@@ -3744,15 +3744,10 @@ class FEModel3D():
         total_dof = len(D1_indices) + len(D2_indices)
         F_total = zeros((total_dof, total_steps))
 
-        # Initialise D2, V2 and A2 for the entire analysis duration
-        D2 = zeros((len(D2_for_check),total_steps))
-        V2 = zeros((len(D2_for_check), total_steps))
-        A2 = zeros((len(D2_for_check), total_steps))
 
         # Build the influence vectors used to define the earthquake force
         # Influence vectors are used to select the degrees of freedom in
         # the model stimulated by the earthquake
-
         i = 0
         unp_influence_X = zeros((total_dof,1))
         unp_influence_Y = zeros((total_dof,1))
@@ -3882,6 +3877,19 @@ class FEModel3D():
             # Add to the models partitioned and total force vectors
             F_total += unp_AgZ_F
             F += AgZ_F
+
+
+        # Get D2, V2 and A2 for the entire analysis duration
+        D2, V2, A2 = Analysis._D2(self, expanded_time, len(D2_for_check))
+
+        # Add forces due to prescribed displacements, velocities and accelerations
+        # For the supported damping models, it's not possible to generate the full damping matrix
+        # Hence the contribution of prescribed velocities to the forcing functions is not consindered
+
+        F -= M12 @ A2 + K12 @  D2
+
+        #print(D2.shape)
+
 
         # Save the total global force
         self.F_TOTAL = F_total

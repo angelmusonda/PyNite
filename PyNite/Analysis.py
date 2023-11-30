@@ -1097,22 +1097,36 @@ def _partition(model, unp_matrix, D1_indices, D2_indices):
         return m11, m12, m21, m22
 
 
-def _D2(model:FEModel3D,time,num_points = 1000):
-    """Builds a list with known nodal displacements and with the positions in global stiffness
-        matrix of known and unknown nodal displacements
+def _D2(model, expanded_time, D2_length):
+    """
+    Builds the enforced displacements, velocities and accelerations for the entire duration of analysis.
 
-    :return: A list of the global matrix indices for the unknown nodal displacements (D1_indices). A
-                list of the global matrix indices for the known nodal displacements (D2_indices). A list
-                of the known nodal displacements (D2).
-    :rtype: list, list, list
+    :param model: The finite element model
+    :type model: FEModel3D
+    :param expanded_time: An array of time instances for analysis
+    :type expanded_time: ndarray
+    :param D2_length: Number of constrained degrees of freedom
+    :type D2_length: int
+    :return: Prescribed displacements, velocities and accelerstions for the entire duration on analysis.
+    :rtype: ndarray, ndarray, ndarray, ndarray
+
     """
 
-    D2 = []  # A list of the values of the known nodal displacements (D != None)
-    V2 = []  # A list of the values of the known nodal velocities (V != None)
-    A2 = []  # A list of the values of the known nodal accelerations (A != None)
+    expanded_time_length = len(expanded_time)
+
+    D2 = zeros((D2_length, expanded_time_length))
+    V2 = zeros((D2_length, expanded_time_length))
+    A2 = zeros((D2_length, expanded_time_length))
+
+    # Default displacement profile, which is just ones
+    default_profile = ones((1,expanded_time_length))
+
     profile_values= model.DisplacementProfiles
     profile_keys = model.DisplacementProfiles.keys()
     # Create the auxiliary table
+
+    # Variable for indexing
+    i = 0
     for node in model.Nodes.values():
 
         # Unknown displacement DX
@@ -1132,7 +1146,7 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array),max(time_array),num_points)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
                 new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
@@ -1141,34 +1155,34 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # The acceleration profile is found by differentiating the velocity profile
                 acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time,time_array,displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array,acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time*node.EnforcedDX)
-                V2.append(vel_profile_at_time*node.EnforcedDX)
-                A2.append(acc_profile_at_time*node.EnforcedDX)
+                D2[i,:] = disp_profile_final*node.EnforcedDX
+                V2[i,:] = vel_profile_final*node.EnforcedDX
+                A2[i,:] = acc_profile_final*node.EnforcedDX
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedDX)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedDX * default_profile
+
+            # Increment i
+            i += 1
 
         # Support at DX
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
 
         # Unknown displacement DY
-        if node.support_DY == False and node.EnforcedDY == None:
+        if node.support_DY==False and node.EnforcedDY == None:
             # In future the function _partition() and this function can be merged. Some of the code from
             # _partition() can be put here
             pass
@@ -1184,43 +1198,43 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array), max(time_array), num_points)
-                new_disp_profile = interp(new_time_array, time_array, displacement_profile)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
-                velocity_profile = gradient(new_disp_profile, new_time_array)
+                velocity_profile = gradient(new_disp_profile,new_time_array)
 
                 # The acceleration profile is found by differentiating the velocity profile
-                acceleration_profile = gradient(velocity_profile, new_time_array)
+                acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time, time_array, displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array, acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time * node.EnforcedDY)
-                V2.append(vel_profile_at_time * node.EnforcedDY)
-                A2.append(acc_profile_at_time * node.EnforcedDY)
+                D2[i,:] = disp_profile_final*node.EnforcedDY
+                V2[i,:] = vel_profile_final*node.EnforcedDY
+                A2[i,:] = acc_profile_final*node.EnforcedDY
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedDY)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedDY * default_profile
+
+            # Increment i
+            i+=1
 
         # Support at DY
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
 
         # Unknown displacement DZ
-        if node.support_DZ == False and node.EnforcedDZ == None:
+        if node.support_DZ==False and node.EnforcedDZ == None:
             # In future the function _partition() and this function can be merged. Some of the code from
             # _partition() can be put here
             pass
@@ -1236,43 +1250,43 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array), max(time_array), num_points)
-                new_disp_profile = interp(new_time_array, time_array, displacement_profile)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
-                velocity_profile = gradient(new_disp_profile, new_time_array)
+                velocity_profile = gradient(new_disp_profile,new_time_array)
 
                 # The acceleration profile is found by differentiating the velocity profile
-                acceleration_profile = gradient(velocity_profile, new_time_array)
+                acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time, time_array, displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array, acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time * node.EnforcedDZ)
-                V2.append(vel_profile_at_time * node.EnforcedDZ)
-                A2.append(acc_profile_at_time * node.EnforcedDZ)
+                D2[i,:] = disp_profile_final*node.EnforcedDZ
+                V2[i,:] = vel_profile_final*node.EnforcedDZ
+                A2[i,:] = acc_profile_final*node.EnforcedDZ
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedDZ)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedDZ * default_profile
+
+            # Increment i
+            i+=1
 
         # Support at DZ
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
 
         # Unknown displacement RX
-        if node.support_RX == False and node.EnforcedRX == None:
+        if node.support_RX==False and node.EnforcedRX == None:
             # In future the function _partition() and this function can be merged. Some of the code from
             # _partition() can be put here
             pass
@@ -1288,43 +1302,43 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array), max(time_array), num_points)
-                new_disp_profile = interp(new_time_array, time_array, displacement_profile)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
-                velocity_profile = gradient(new_disp_profile, new_time_array)
+                velocity_profile = gradient(new_disp_profile,new_time_array)
 
                 # The acceleration profile is found by differentiating the velocity profile
-                acceleration_profile = gradient(velocity_profile, new_time_array)
+                acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time, time_array, displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array, acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time * node.EnforcedRX)
-                V2.append(vel_profile_at_time * node.EnforcedRX)
-                A2.append(acc_profile_at_time * node.EnforcedRX)
+                D2[i,:] = disp_profile_final*node.EnforcedRX
+                V2[i,:] = vel_profile_final*node.EnforcedRX
+                A2[i,:] = acc_profile_final*node.EnforcedRX
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedRX)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedRX * default_profile
+
+            # Increment i
+            i+=1
 
         # Support at RX
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
 
         # Unknown displacement RY
-        if node.support_RY == False and node.EnforcedRY == None:
+        if node.support_RY==False and node.EnforcedRY == None:
             # In future the function _partition() and this function can be merged. Some of the code from
             # _partition() can be put here
             pass
@@ -1340,48 +1354,49 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array), max(time_array), num_points)
-                new_disp_profile = interp(new_time_array, time_array, displacement_profile)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
-                velocity_profile = gradient(new_disp_profile, new_time_array)
+                velocity_profile = gradient(new_disp_profile,new_time_array)
 
                 # The acceleration profile is found by differentiating the velocity profile
-                acceleration_profile = gradient(velocity_profile, new_time_array)
+                acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time, time_array, displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array, acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time * node.EnforcedRY)
-                V2.append(vel_profile_at_time * node.EnforcedRY)
-                A2.append(acc_profile_at_time * node.EnforcedRY)
+                D2[i,:] = disp_profile_final*node.EnforcedRY
+                V2[i,:] = vel_profile_final*node.EnforcedRY
+                A2[i,:] = acc_profile_final*node.EnforcedRY
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedRY)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedRY * default_profile
+
+            # Increment i
+            i+=1
 
         # Support at RY
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
 
         # Unknown displacement RZ
-        if node.support_RZ == False and node.EnforcedRZ == None:
+        if node.support_RZ==False and node.EnforcedRZ == None:
             # In future the function _partition() and this function can be merged. Some of the code from
             # _partition() can be put here
             pass
         # Known displacement RZ
-        elif node.EnforcedRX != None:
+        elif node.EnforcedRZ != None:
             if node.name in profile_keys and profile_values[node.name].direction == 'RZ':
                 node_name = node.name
 
@@ -1392,44 +1407,42 @@ def _D2(model:FEModel3D,time,num_points = 1000):
                 # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
                 # inorder to carry out proper numerical differentiation
                 # Hence we generate new arrays from the originals by interpolation
-                new_time_array = linspace(min(time_array), max(time_array), num_points)
-                new_disp_profile = interp(new_time_array, time_array, displacement_profile)
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
 
                 # The velocity profile is found by differentiating the new displacement profile
-                velocity_profile = gradient(new_disp_profile, new_time_array)
+                velocity_profile = gradient(new_disp_profile,new_time_array)
 
                 # The acceleration profile is found by differentiating the velocity profile
-                acceleration_profile = gradient(velocity_profile, new_time_array)
+                acceleration_profile = gradient(velocity_profile,new_time_array)
 
-                # The displacement at the required time is found by interpolating the original
-                # displacement profile
-                disp_profile_at_time = interp(time, time_array, displacement_profile)
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
 
-                # The velocity and acceleration at time = time are also found by interpolating
+                # The velocity and acceleration profiles are also found by interpolating
                 # their respective profiles
-                vel_profile_at_time = interp(time, new_time_array, velocity_profile)
-                acc_profile_at_time = interp(time, new_time_array, acceleration_profile)
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
 
                 # The actual values are then calculated and appended
-                D2.append(disp_profile_at_time * node.EnforcedRZ)
-                V2.append(vel_profile_at_time * node.EnforcedRZ)
-                A2.append(acc_profile_at_time * node.EnforcedRZ)
+                D2[i,:] = disp_profile_final*node.EnforcedRZ
+                V2[i,:] = vel_profile_final*node.EnforcedRZ
+                A2[i,:] = acc_profile_final*node.EnforcedRZ
             else:
                 # If there is no profile defined, then the displacement is constant
                 # Hence the velocity and acceleration are zeros
-                D2.append(node.EnforcedRZ)
-                V2.append(0.0)
-                A2.append(0.0)
+                D2[i,:] = node.EnforcedRZ * default_profile
+
+            # Increment i
+            i+=1
 
         # Support at RZ
         else:
-            D2.append(0.0)
-            V2.append(0.0)
-            A2.append(0.0)
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
 
-    D2 = array(D2, ndmin=2).T
-    V2 = array(V2, ndmin=2).T
-    A2 = array(A2, ndmin=2).T
+
     return D2, V2, A2
 
 
@@ -1438,7 +1451,7 @@ def _renumber(model):
     Assigns node and element ID numbers to be used internally by the program. Numbers are
     assigned according to the order in which they occur in each dictionary.
     """
-    
+
     # Number each node in the model
     for id, node in enumerate(model.Nodes.values()):
         node.ID = id
