@@ -1901,7 +1901,6 @@ class FEModel3D():
                         M[m, n] += quad_M[a, b]
 
         # Add mass terms for each plate in the model
-        if log: print('- Adding plate mass terms to global stiffness matrix')
         for plate in self.Plates.values():
 
             # Get the plate's global mass matrix
@@ -1959,16 +1958,16 @@ class FEModel3D():
 
         # Add concentrated masses for point load cases taken as mass cases
         # We will distribute the point mass to the translation degrees of freedom
+        if log: print('- Generating mass from selected load cases')
+        # Step through the Mass Cases
+        for case in self.MassCases.keys():
+            gravity = self.MassCases[case].gravity
+            factor = self.MassCases[case].factor
 
-        for node in self.Nodes.values():
+            for node in self.Nodes.values():
 
-            # Get the node's ID
-            ID = node.ID
-
-            # Step through the Mass Cases
-            for case in self.MassCases.keys():
-                gravity = self.MassCases[case].gravity
-                factor = self.MassCases[case].factor
+                # Get the node's ID
+                ID = node.ID
 
                 # Step through the nodal loads
                 for load in node.NodeLoads:
@@ -2014,6 +2013,7 @@ class FEModel3D():
                         else:
                             raise Exception('Direction error: Mass cases should have a direction of "FZ"')
 
+        if log: print('- Generation of mass cases from selected load cases complete')
         if sparse:
             # The mass matrix will be stored as a scipy `coo_matrix`. Scipy's
             # documentation states that this type of matrix is ideal for efficient
@@ -2797,11 +2797,6 @@ class FEModel3D():
             type_of_mass_matrix = 'lumped'
             warnings.warn('type_of_mass_matrix should be "lumped" or "consistent". Default option "lumped" will be used.')
 
-        if log:
-            print('+-------------------+')
-            print('| Analyzing: Modal  |')
-            print('+-------------------+')
-
         # Import `scipy` features if the sparse solver is being used
         if sparse == True:
             from scipy.sparse.linalg import spsolve
@@ -2811,7 +2806,13 @@ class FEModel3D():
             self.LoadCombos['Modal Combo'] = LoadCombo('Modal Combo', factors={'Modal Case': 0})
 
         #Prepare model
+        if log: print('- Preparing model for modal analysis')
         Analysis._prepare_model(self)
+
+        if log:
+            print('+-------------------+')
+            print('| Analyzing: Modal  |')
+            print('+-------------------+')
 
         # Get the auxiliary list used to determine how the matrices will be partitioned
         D1_indices, D2_indices, D2 = Analysis._partition_D(self)
@@ -3500,7 +3501,7 @@ class FEModel3D():
          """
 
         if log:
-            print('Checking parameters for time history analysis')
+            print('- Checking parameters for time history analysis')
 
         # Check if enter load combination name exists
         if combo_name!=None and combo_name not in self.LoadCombos.keys():
@@ -3532,24 +3533,29 @@ class FEModel3D():
                     raise DampingOptionsKeyWordError
 
 
-        # Get the auxiliary list used to determine how the matrices will be partitioned
-        Analysis._renumber(self)
-        D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
-
-        # Check if the dynamic load combination or at least one seismic ground acceleration has been given
-        # Or at least one nonzero displacement at a node
-        if combo_name == None and AgX is None and AgY is None and AgZ is None:
-            if any(D2_for_check) == False:
-                raise DynamicLoadNotDefinedError
-
-        # If only a seismic load has been provided, add default load combination 'THA combo'
-        # Define its profile too
+        # Check if dynamic load combo has been given
+        # If it has not been given, add one
         combo_exists = True
         if combo_name==None:
             combo_exists = False
             combo_name = 'THA combo'
             self.LoadCombos[combo_name] = LoadCombo(name=combo_name, factors={'Case 1':0}, combo_tags='THA')
             self.LoadProfiles['Case 1'] = LoadProfile(load_case_name='Case 1',time = [0,response_duration],profile=[0,0])
+
+
+        if log:
+            print('- Preparing model')
+        Analysis._prepare_model(self)
+
+        # Get the auxiliary list used to determine how the matrices will be partitioned
+        D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
+
+        # Check if the dynamic load combination or at least one seismic ground acceleration has been given
+        # Or at least one nonzero displacement at a node
+        if combo_exists == False and AgX is None and AgY is None and AgZ is None:
+            if any(D2_for_check) == False:
+                raise DynamicLoadNotDefinedError
+
 
         # Calculate the required number of time history steps
         total_steps = ceil(response_duration/step_size)+1
@@ -3573,7 +3579,7 @@ class FEModel3D():
                 r_beta = 0
 
         if log:
-            print('Preparing parameters for time history analysis')
+            print('- Preparing parameters for time history analysis')
 
         # Edit the load profiles so that they are defined for the entire duration of analysis
         for disp_profile in self.DisplacementProfiles.values():
@@ -3701,9 +3707,12 @@ class FEModel3D():
             else:
                 raise ValueError("AgZ must be a numpy array")
 
-        # Prepare the model
-        Analysis._prepare_model(self)
-        D1_indices, D2_indices, D2_for_check = Analysis._partition_D(self)
+
+        # This has been addressed by adding combo name before preparing model,
+        # We have added a new load combination name. Hence, we must activate the members for this load
+        # combo
+        #Analysis._activate_all_combos(self)
+
 
         if log:
             print('')
