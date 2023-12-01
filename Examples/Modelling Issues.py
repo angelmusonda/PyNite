@@ -235,17 +235,19 @@ print('num values = ', num_values)
 # Close the file
 file.close()
 
+model.analyze_modal(num_modes=5)
 
 #TIME HISTORY ANALYSIS
 
 damping = dict(r_alpha = 0.01, r_beta = 0.01)
 model.analyze_linear_time_history_newmark_beta(
-    analysis_method='direct',
+    analysis_method='modal',
     AgY=ground_acceleration,
     step_size=0.01,
     response_duration=50,
     log=True,
-    damping_options=damping
+    damping_options=damping,
+    recording_frequency=10
 
 ) 
 

@@ -70,7 +70,7 @@ frame.add_member('Column8', 'N8', 'N12', 'Concrete', Iy, Iz, J, A)
 # Add Slab
 frame.add_rectangle_mesh('Slab1',1,4,4,0.2,'Concrete',origin=[0,0,3.5],element_type='Quad')
 frame.Meshes['Slab1'].generate()
-
+frame.merge_duplicate_nodes()
 for element in frame.Quads.values():
     frame.add_quad_surface_pressure(element.name,10e3,case = 'Pressure')
 
@@ -119,8 +119,8 @@ frame.add_load_combo('COMB1',{'Pressure':1})
 
 # Analyse Model
 #print(frame.Members["Beam1"].m())
-damping = dict(constant_modal_damping = 0.02)
-frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of_mass_matrix='consistent')
+#damping = dict(constant_modal_damping = 0.02)
+#frame.analyze_modal(sparse = False, tol= 0.0001,log = True,num_modes=10,type_of_mass_matrix='consistent')
 #print(frame.analyze_harmonic(harmonic_combo='COMB1', f1=2,f2=10,f_div=10, sparse=False,log=False, damping_options=damping))
 #frame.analyze_linear()
 #print(frame.set_load_frequency_to_query_results_for(2, 'COMB1'))
@@ -136,14 +136,23 @@ frame.analyze_modal(sparse = False, tol= 0.0001,log = False,num_modes=10,type_of
 import numpy as np
 time = [0,1,5,10]
 profile = [0,-1,1,0.5]
-frame.def_load_profile('N',time, profile)
-frame.def_load_profile('Pressure',time=[0,1,10], profile=[0,1,1])
-frame.def_node_disp('N25','DZ',0.01)
-frame.def_disp_profile('N25','DZ',time=[0,1,10], profile=[0,1,1])
+#frame.def_load_profile('N',time, profile)
+#frame.def_load_profile('Pressure',time=[0,1,10], profile=[0,1,1])
+frame.def_node_disp('N25','DX',0.01)
+frame.def_disp_profile('N25','DX',time=[0,1,10], profile=[0,1,1])
 
-print(frame.analyze_linear_time_history_newmark_beta(d0 = None, v0 = None,AgX=None, AgY=None, AgZ=None,
-                                                      step_size=0.01, response_duration=1, newmark_beta=0.25,
-                                                      newmark_gamma=0.5, log=False))
+#damping = dict(constant_modal_damping = 0.02)
+frame.analyze_modal(sparse = True, tol= 0.0001,log = False,num_modes=60,type_of_mass_matrix='consistent')
+print(frame.MASS_PARTICIPATION_PERCENTAGES())
+print(frame.MODE_SHAPES().shape)
+
+frame.analyze_linear_time_history_newmark_beta(
+    analysis_method='direct',d0 = None, v0 = None,AgX=None, AgY=None, AgZ=None,
+    step_size=0.01, response_duration=1, newmark_beta=0.25,
+    newmark_gamma=0.5, log=False,
+    recording_frequency=10
+    )
+
 
 
 from PyNite.Visualization import Renderer

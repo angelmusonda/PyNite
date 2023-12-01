@@ -2862,7 +2862,7 @@ class FEModel3D():
 
                 else:
                     warnings.warn('The program will calculate all modes, then extract only the requested for number.'
-                                  'This is not efficient. To be more efficient, set sparse = True'
+                                  'This is not efficient. To be more efficient, set sparse = True '
                                   'to use a more efficient scipy.sparse.linalg.eigs() solver')
 
                     # Find all eigen values
@@ -2879,7 +2879,6 @@ class FEModel3D():
                     # Extract the first few modes requested for
                     eigVal = eigVal[:num_modes]
                     eigVec = eigVec[:,0:num_modes]
-                    print(eigVec.shape)
 
             except:
                 raise Exception(
@@ -3432,7 +3431,7 @@ class FEModel3D():
     def analyze_linear_time_history_newmark_beta(self, analysis_method = 'direct', combo_name=None, AgX=None,
                                                  AgY=None, AgZ=None, step_size = 0.01, response_duration = 1,
                                                  newmark_gamma = 1/2, newmark_beta = 1/4, sparse=True,
-                                                 log = False, d0 = None, v0 = None,
+                                                 log = False, d0 = None, v0 = None, recording_frequency = 1,
                                                  damping_options = dict(), type_of_mass_matrix='consistent'):
 
         """
@@ -3478,6 +3477,10 @@ class FEModel3D():
 
             :param v0: Initial velocities. Default is None.
             :type v0: ndarray, optional
+
+            :param recording_frequency: The frequency of recording results. For example, if set to 3, results will be
+                 recorded once every 3 time steps.
+            :type recording_frequency: int, optional
 
             :param damping_options: Dictionary of damping options for the analysis. Default is zero damping.
             :type damping_options: dict, optional
@@ -3815,8 +3818,26 @@ class FEModel3D():
         )
         expanded_time = concatenate([expanded_time, array([response_duration])])
 
-        # We calculate the load vectors for each case for each time instance, and sum them up
+        # We also create a list of steps for which results will be saved
+        # Generate a list of steps
+        list_of_total_steps = range(total_steps)
 
+        # Select some steps at the specified interval, make sure the first and last are selected
+        list_of_steps_for_saving_results = concatenate(
+            [list_of_total_steps[::recording_frequency], array([list_of_total_steps[-1]])]
+        )
+
+        # Remove any duplicates
+        list_of_steps_for_saving_results = list(set(list_of_steps_for_saving_results))
+
+        # Make sure the order is correct
+        list_of_steps_for_saving_results.sort()
+
+        # Convert to array
+        list_of_steps_for_saving_results = array(list_of_steps_for_saving_results)
+
+
+        # We calculate the load vectors for each case for each time instance, and sum them up
         if combo_exists:
             for case_name in self.LoadCombos[combo_name].factors.keys():
                 # Extract the time vector from the load profile definition for this load case
@@ -3888,12 +3909,9 @@ class FEModel3D():
 
         F -= M12 @ A2 + K12 @  D2
 
-        #print(D2.shape)
-
-
         # Save the total global force
-        self.F_TOTAL = F_total
-
+        #self.F_TOTAL = F_total
+        self.F_TOTAL = F_total[:,list_of_steps_for_saving_results]
 
         # Get the mode shapes and natural frequencies if modal analysis method is specified
         if analysis_method == 'modal':
@@ -3916,8 +3934,8 @@ class FEModel3D():
 
         # Find the corresponding quantities in the modal coordinate system if modal superposition method is requested
         if analysis_method == 'modal':
-            d0_n = solve(Z.T @ Z, Z.T @ d0_phy)
-            v0_n = solve(Z.T @ Z, Z.T @ v0_phy)
+            d0_n = solve(a=Z.T @ Z, b=Z.T @ d0_phy)
+            v0_n = solve(a=Z.T @ Z, b=Z.T @ v0_phy)
             F_n = Z.T @ F
 
         # Run the analysis
@@ -3928,6 +3946,7 @@ class FEModel3D():
                      Analysis._transient_solver_linear_direct(K=K11, M=M11,d0=d0_phy,v0=v0_phy,
                                                               F0=F[:,0],F = F,step_size=step_size,
                                                               required_duration=response_duration,
+                                                              steps_for_results_recording =list_of_steps_for_saving_results,
                                                               newmark_gamma=newmark_gamma,
                                                               newmark_beta=newmark_beta,
                                                               taylor_alpha=0, wilson_theta=1,
@@ -3939,18 +3958,29 @@ class FEModel3D():
                     Analysis._transient_solver_linear_modal(d0_n=d0_n, v0_n=v0_n, F0_n=F_n[:, 0],
                                                             F_n=F_n, step_size=step_size,
                                                             required_duration=response_duration,
+                                                            steps_for_results_recording=list_of_steps_for_saving_results,
                                                             mass_normalised_eigen_vectors=Z,
                                                             natural_freq=w, newmark_gamma=newmark_gamma,
                                                             newmark_beta=newmark_beta, taylor_alpha=0,
                                                             wilson_theta=1, damping_options=damping_options,
                                                             log=log)
         except:
-            raise Exception("Out of memory")
+            raise Exception("Error occurred during time history analysis")
 
         # Form the global response vectors D, V and A
-        D = zeros((len(self.Nodes) * 6, total_steps))
-        V = zeros((len(self.Nodes) * 6, total_steps))
-        A = zeros((len(self.Nodes) * 6, total_steps))
+        #D = zeros((len(self.Nodes) * 6, total_steps))
+        #V = zeros((len(self.Nodes) * 6, total_steps))
+        #A = zeros((len(self.Nodes) * 6, total_steps))
+
+        length_of_results = len(list_of_steps_for_saving_results)
+
+        D = zeros((len(self.Nodes) * 6, length_of_results))
+        V = zeros((len(self.Nodes) * 6, length_of_results))
+        A = zeros((len(self.Nodes) * 6, length_of_results))
+
+        D2 = D2[:,list_of_steps_for_saving_results]
+        V2 = V2[:,list_of_steps_for_saving_results]
+        A2 = A2[:,list_of_steps_for_saving_results]
 
         for node in self.Nodes.values():
             if D2_indices.count(node.ID * 6 + 0) == 1:
@@ -4008,7 +4038,7 @@ class FEModel3D():
                 A[node.ID * 6 + 5, :] = A1[D1_indices.index(node.ID * 6 + 5), :]
 
         # Save the responses
-        self._TIME_THA = expanded_time
+        self._TIME_THA = expanded_time[list_of_steps_for_saving_results]
         self._DISPLACEMENT_THA = D
         self._VELOCITY_THA = V
         self._ACCELERATION_THA = A

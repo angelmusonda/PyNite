@@ -142,7 +142,7 @@ plt.title('Simple Line Plot')
 
 #print(model.REACTIONS_REAL()[:,0])
 # Show the plot
-#plt.show()
+plt.show()
 
 import pickle
 with open('model.pickle', 'wb') as file:

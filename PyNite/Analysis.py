@@ -1478,6 +1478,7 @@ def _renumber(model):
 
 
 def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_duration,
+                                   steps_for_results_recording,
                                    mass_normalised_eigen_vectors, natural_freq,
                                    newmark_gamma, newmark_beta,
                                    taylor_alpha, wilson_theta, damping_options = dict(),
@@ -1497,6 +1498,8 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
         :type step_size: float
         :param required_duration: Total duration of the analysis.
         :type required_duration: float
+        :param steps_for_results_recording: An array of steps for which results should be recorded
+        :type steps_for_results_recording: ndarray
         :param mass_normalised_eigen_vectors: Mass-normalized eigen vectors.
         :type mass_normalised_eigen_vectors: numpy.ndarray
         :param natural_freq: Angular frequencies of the modes.
@@ -1647,48 +1650,68 @@ def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_du
     total_steps = ceil(required_duration/step) + 1
 
     # Initialise the matrices to store displacements, velocities and accelerations
-    D_n = zeros((size, total_steps))
-    V_n = zeros((size, total_steps))
-    A_n = zeros((size, total_steps))
+    length_of_results = len(steps_for_results_recording)
+    D_n = zeros((size, length_of_results))
+    V_n = zeros((size, length_of_results))
+    A_n = zeros((size, length_of_results))
 
     # Store the initial values of displacements, velocities and accelerations
     D_n[:,0] = d0_n
     V_n[:,0] = v0_n
     A_n[:,0] = a0_n
 
+    d_prev = d0_n
+    v_prev = v0_n
+    a_prev = a0_n
+
+    # Index for recording results
+    j = 0
+
     for i in range(total_steps-1):
         if log:
             update_progress(i, total_steps - 2, '- Analysis Progress')
 
         # Calculate the predictors
-        dp = D_n[:,i] + tau * V_n[:,i] + tau**2 * (0.5-beta) * A_n[:,i]
-        vp = V_n[:,i] + tau * (1-gamma) * A_n[:,i]
+        dp = d_prev + tau * v_prev + tau**2 * (0.5-beta) * a_prev
+        vp = v_prev + tau * (1-gamma) * a_prev
 
         # Calculate right hand side, RHS
-        RHS = (1-theta) * F_n[:,i] + theta * F_n[:,i+1] - C_n * vp - K_n * ((1+alpha) * dp-alpha * D_n[:,i])
+        RHS = (1 - theta) * F_n[:, i] + theta * F_n[:, i + 1] - C_n * vp - K_n * ((1 + alpha) * dp - alpha * d_prev)
 
         # Calculate the collocation acceleration
         A_col = CCM * RHS
 
         # Compute and save the acceleration, velocity and displacement
-        A_n[:,i+1] = A_n[:,i] + (1/theta) * (A_col - A_n[:,i])
-        V_n[:,i+1] = V_n[:,i] + step * (1-gamma) * A_n[:,i] + gamma * step * A_n[:,i+1]
-        D_n[:,i+1] = D_n[:,i] + step * V_n[:,i] + step**2 * (0.5-beta) * A_n[:,i] + beta * step**2 * A_n[:,i+1]
+        a_current = a_prev + (1/theta) * (A_col - a_prev)
+        v_current = v_prev + step * (1-gamma) * a_prev + gamma * step * a_current
+        d_current = d_prev + step * v_prev + step**2 * (0.5-beta) * a_prev + beta * step**2 * a_current
 
+        if i + 1 in steps_for_results_recording:
+            j += 1
+            A_n[:, j] = a_current
+            V_n[:, j] = v_current
+            D_n[:, j] = d_current
+
+        a_prev = a_current
+        v_prev = v_current
+        d_prev = d_current
 
     # Calculate the physical coordinates
     A = mass_normalised_eigen_vectors @ A_n
     V = mass_normalised_eigen_vectors @ V_n
     D = mass_normalised_eigen_vectors @ D_n
-
+    import numpy
+    print(numpy.linalg.norm(D))
     return D, V, A
 
 
 def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
                                     step_size, required_duration,
+                                    steps_for_results_recording,
                                     newmark_gamma, newmark_beta,
                                     taylor_alpha, wilson_theta,
                                     rayleigh_alpha = 0, rayleigh_beta = 0,
+
                                     sparse=True, log = False):
     """
        General direct linear time history solver.
@@ -1721,6 +1744,8 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
        :type rayleigh_alpha: float
        :param rayleigh_beta: Rayleigh stiffness proportional damping coefficient (beta) (default: 0).
        :type rayleigh_beta: float
+       :param steps_for_results_recording: An array of steps for which results should be recorded
+       :type steps_for_results_recording: ndarray
        :param sparse: Indicates whether matrices are sparse (default: True).
        :type sparse: bool
        :param log: If True, print analysis log to the console. Default is False.
@@ -1780,15 +1805,22 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     total_steps = ceil(required_duration/step) + 1
 
     # Initialise the matrices to store displacements, velocities and accelerations
-    D = zeros((size, total_steps))
-    V = zeros((size, total_steps))
-    A = zeros((size, total_steps))
-
+    length_of_results = len(steps_for_results_recording)
+    D = zeros((size, length_of_results))
+    V = zeros((size, length_of_results))
+    A = zeros((size, length_of_results))
 
     # Store the initial values of displacements, velocities and accelerations
     D[:,0] = d0
     V[:,0] = v0
     A[:,0] = a0
+
+    d_prev = d0
+    v_prev = v0
+    a_prev = a0
+
+    # Index for recording results
+    j = 0
 
     if sparse:
         for i in range(total_steps-1):
@@ -1796,43 +1828,63 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
                 update_progress(i,total_steps-2,'- Analysis Progress')
 
             # Calculate the predictors
-            dp = D[:, i] + tau * V[:, i] + tau ** 2 * (0.5 - beta) * A[:, i]
-            vp = V[:, i] + tau * (1 - gamma) * A[:, i]
+            dp = d_prev + tau * v_prev + tau ** 2 * (0.5 - beta) * a_prev
+            vp = v_prev + tau * (1 - gamma) * a_prev
 
             # Calculate right hand side, RHS
-            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * D[:, i])
+            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * d_prev)
 
             # Calculate the collocation acceleration
             A_col = lu_sparse_CCM.solve(RHS)
 
             # Compute and save the acceleration, velocity and displacement
-            A[:, i + 1] = A[:, i] + (1 / theta) * (A_col - A[:, i])
-            V[:, i + 1] = V[:, i] + step * (1 - gamma) * A[:, i] + gamma * step * A[:, i + 1]
-            D[:, i + 1] = D[:, i] + step * V[:, i] + step ** 2 * (0.5 - beta) * A[:, i] + beta * step ** 2 * A[:, i + 1]
+            a_current = a_prev + (1 / theta) * (A_col - a_prev)
+            v_current = v_prev + step * (1 - gamma) * a_prev + gamma * step * a_current
+            d_current = d_prev + step * v_prev + step ** 2 * (0.5 - beta) * a_prev + beta * step ** 2 * a_current
 
+            if i+1 in steps_for_results_recording:
+                j+=1
+                A[:,j] = a_current
+                V[:,j] = v_current
+                D[:,j] = d_current
+
+            a_prev = a_current
+            v_prev = v_current
+            d_prev = d_current
 
     else:
 
         for i in range(total_steps-1):
             if log:
-                update_progress(i, total_steps - 2, '- Analysis Progress')
+                update_progress(i,total_steps-2,'- Analysis Progress')
 
             # Calculate the predictors
-            dp = D[:, i] + tau * V[:, i] + tau ** 2 * (0.5 - beta) * A[:, i]
-            vp = V[:, i] + tau * (1 - gamma) * A[:, i]
+            dp = d_prev + tau * v_prev + tau ** 2 * (0.5 - beta) * a_prev
+            vp = v_prev + tau * (1 - gamma) * a_prev
 
             # Calculate right hand side, RHS
-            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * D[:, i])
+            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * d_prev)
 
             # Calculate the collocation acceleration
             #A_col = lu_solve( (lu_CCM, lu_piv_CCM) ,b = RHS , overwrite_b = True)
             A_col = backward_solve(R_CCM, Q_CCM.T @ RHS)
 
             # Compute and save the acceleration, velocity and displacement
-            A[:, i + 1] = A[:, i] + (1 / theta) * (A_col - A[:, i])
-            V[:, i + 1] = V[:, i] + step * (1 - gamma) * A[:, i] + gamma * step * A[:, i + 1]
-            D[:, i + 1] = D[:, i] + step * V[:, i] + step ** 2 * (0.5 - beta) * A[:, i] + beta * step ** 2 * A[:, i + 1]
+            a_current = a_prev + (1 / theta) * (A_col - a_prev)
+            v_current = v_prev + step * (1 - gamma) * a_prev + gamma * step * a_current
+            d_current = d_prev + step * v_prev + step ** 2 * (0.5 - beta) * a_prev + beta * step ** 2 * a_current
 
+            if i+1 in steps_for_results_recording:
+                j+=1
+                A[:,j] = a_current
+                V[:,j] = v_current
+                D[:,j] = d_current
+
+            a_prev = a_current
+            v_prev = v_current
+            d_prev = d_current
+    import numpy
+    print(numpy.linalg.norm(D))
     return D, V, A
 
 def update_progress(step, total, process_name):
