@@ -56,6 +56,13 @@ class Member3D():
             self.Iz = model.Sections[section_name].Iz
             self.J = model.Sections[section_name].J
         
+        # Variables used to track nonlinear material member end forces
+        self._fxi = 0
+        self._myi = 0
+        self._mzi= 0
+        self._fxj = 0
+        self._myj = 0
+        self._mzj = 0
 
         self.auxNode = auxNode # Optional auxiliary node used to define the member's local z-axis
         self.PtLoads = []   # A list of point loads & moments applied to the element (Direction, P, x, case='Case 1') or (Direction, M, x, case='Case 1')
@@ -67,14 +74,10 @@ class Member3D():
         self.tension_only = tension_only # Indicates whether the member is tension-only
         self.comp_only = comp_only # Indicates whether the member is compression-only
 
-        # Members need to track whether they are active or not for any given load combination.
-        # They may become inactive for a load combination during a tension/compression-only
-        # analysis. This dictionary will be used when the model is solved.
+        # Members need to track whether they are active or not for any given load combination. They may become inactive for a load combination during a tension/compression-only analysis. This dictionary will be used when the model is solved.
         self.active = {} # Key = load combo name, Value = True or False
         
-        # The 'Member3D' object will store results for one load combination at a time. To reduce repetative calculations
-        # the '__solved_combo' variable will be used to track whether the member needs to be resegmented before running
-        # calculations for any given load combination.
+        # The 'Member3D' object will store results for one load combination at a time. To reduce repetative calculations the '__solved_combo' variable will be used to track whether the member needs to be resegmented before running calculations for any given load combination.
         self.__solved_combo = None # The current solved load combination
 
         # Members need a link to the model they belong to
@@ -233,23 +236,19 @@ class Member3D():
 
         :param combo_name: The name of the load combination to get the plastic reduction matrix for. Defaults to 'Combo 1'.
         :type combo_name: str, optional
-        :param push_combo: The name of the load combination that defines the pushover load. Defaults to 'Push 1'.
+        :param push_combo: The name of the load combination that defines the pushover load. Defaults to 'Push'.
         :type push_combo: str, optional
         :param step_num: The pushover load step to consider for calculating the plastic reduciton matrix. Default is 1.
         :type step_num: int, optional
         :return: The plastic reduction matrix for the element
         :rtype: array
         """
-
-        # Get the total elastic end forces applied to the element
-        f = self.f(combo_name) - self.fer(combo_name) - self.fer(push_combo)*step_num
         
         # Get the elastic local stiffness matrix
         ke = self.k()
 
-        # Calculate the elastic member axial force - used to determine the geometric stiffness. This axial force is based on the latest results from the last iteration performed and stored in the model's displacements.
-        d = self.d(combo_name)
-        P = self.E*self.A/self.L()*(d[6, 0] - d[0, 0])
+        # Get the member's axial force
+        P = self._fxj - self._fxi
 
         # Get the geometric local stiffness matrix
         kg = self.kg(P)
@@ -261,9 +260,8 @@ class Member3D():
         if self.section is None:
             raise Exception('Nonlinear material analysis requires member sections to be defined. A section definition is missing for element ' + self.name + '.')
         else:
-            # TODO: Note that we have assumed that `f` is based on the total elastic load acting on the member at this load step, rather than just the change in load for this load step. This seems appropriate, since G is the gradient to the yield surface, and where we are heading along that surface depends on the total load applied, rather than a part of the total load. Need to verify this works correctly with test cases.
-            Gi = self.section.G(f[0, 0], f[4, 0], f[5, 0])
-            Gj = self.section.G(f[6, 0], f[10, 0], f[11, 0])
+            Gi = self.section.G(self._fxi, self._myi, self._mzi)
+            Gj = self.section.G(self._fxj, self._myj, self._mzj)
 
         # Expand the gradients for a 12 degree of freedom element
         zeros_array = zeros((6, 1))
@@ -608,8 +606,8 @@ class Member3D():
             return  m11, m12, m21, m22
 
 #%%   
-    def f(self, combo_name='Combo 1'):
-        """Returns the member's local end force vector for the given load combination.
+    def f(self, combo_name='Combo 1', push_combo='Push', step_num=1):
+        """Returns the member's elastic local end force vector for the given load combination.
 
         :param combo_name: The load combination to get the local end for vector for. Defaults to 'Combo 1'.
         :type combo_name: str, optional
@@ -622,6 +620,9 @@ class Member3D():
             # Back-calculate the axial force on the member from the axial strain
             P = (self.d(combo_name)[6, 0] - self.d(combo_name)[0, 0])*self.A*self.E/self.L()
             return add(matmul(add(self.k(), self.kg(P)), self.d(combo_name)), self.fer(combo_name))
+        elif self.model.solution == 'Pushover':
+            P = self._fxj  -self._fxi
+            return add(matmul(add(self.k(), self.kg(P), self.km(combo_name, push_combo, step_num)), self.d(combo_name)), self.fer(combo_name))
         else:
             return add(matmul(self.k(), self.d(combo_name)), self.fer(combo_name))
 
