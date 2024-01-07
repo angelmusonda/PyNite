@@ -22,6 +22,16 @@ def _prepare_model(model):
     :param model: The model being prepared for analysis.
     :type model: FEModel3D
     """
+    
+    # Reset any nodal displacements
+    model._D = {}
+    for node in model.Nodes.values():
+        node.DX = {}
+        node.DY = {}
+        node.DZ = {}
+        node.RX = {}
+        node.RY = {}
+        node.RZ = {}
 
     # Ensure there is at least 1 load combination to solve if the user didn't define any
     if model.LoadCombos == {}:
