@@ -1814,8 +1814,6 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
     if sparse == True:
         M = M.tocsc()
         K = K.tocsc()
-    else:
-        from scipy.linalg import lu_factor, lu_solve
 
     # Get size of matrices
     size = F.shape[0]
