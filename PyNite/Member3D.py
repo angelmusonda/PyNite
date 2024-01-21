@@ -1,10 +1,14 @@
 # %%
 
 from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, vstack, hstack, allclose
+
+from numpy.linalg import inv, pinv
+
 from numpy.linalg import inv
 
 from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, transpose
 from numpy.linalg import inv, solve
+
 
 from math import isclose
 from PyNite.BeamSegZ import BeamSegZ
@@ -63,6 +67,10 @@ class Member3D():
         self._fxj = 0
         self._myj = 0
         self._mzj = 0
+
+        # Variable used to track plastic load reveral
+        self.i_reversal = False
+        self.j_reversal = False
 
         self.auxNode = auxNode # Optional auxiliary node used to define the member's local z-axis
         self.PtLoads = []   # A list of point loads & moments applied to the element (Direction, P, x, case='Case 1') or (Direction, M, x, case='Case 1')
@@ -275,23 +283,29 @@ class Member3D():
         if allclose(G, 0, atol=1e-14):
             return zeros((12, 12))
         else:
-            return -ke @ G @ inv(G.T @ ke @ G) @ G.T @ ke
+            return -ke @ G @ pinv(G.T @ ke @ G) @ G.T @ ke
     
-    def lamb(self, combo_name='Combo 1'):
+    def lamb(self, combo_name='Combo 1', push_combo='Push', step_num=1):
 
         # Get the elastic local stiffness matrix
         ke = self.k()
 
         # Get the total end forces applied to the element
-        f = self.f() - self.fer(combo_name)
-        d = self.d(combo_name)
+        f = self.f() - self.fer(combo_name) - self.fer(push_combo)*step_num
 
         # Get the gradient to the failure surface at at each end of the element
         if self.section is None:
             raise Exception('Nonlinear material analysis requires member sections to be defined. A section definition is missing for element ' + self.name + '.')
         else:
-            Gi = self.section.G(f[0], f[4], f[5])
-            Gj = self.section.G(f[6], f[10], f[11])
+            if self.i_reversal == False:
+                Gi = self.section.G(f[0], f[4], f[5])
+            else:
+                Gi = [[0], [0], [0]]
+            
+            if self.j_reversal == False:
+                Gj = self.section.G(f[6], f[10], f[11])
+            else:
+                Gj = [[0], [0], [0]]
         
         # Expand the gradients for a 12 degree of freedom element
         zeros_array = zeros((6, 1))
@@ -299,7 +313,8 @@ class Member3D():
         Gj = vstack(zeros_array, Gj)
         G = hstack(Gi, Gj)
 
-        return inv(G.T() @ ke @ G) @ G.T() @ ke @ d
+        #return inv(G.T() @ ke @ G) @ G.T() @ ke @ d_delta
+        pass
 
 
 
@@ -1072,19 +1087,27 @@ class Member3D():
             self._segment_member(combo_name)
             self.__solved_combo = self.model.LoadCombos[combo_name]
         
+        # Determine if a P-Delta analysis has been run
+        if self.model.solution == 'P-Delta' or self.model.solution == 'Pushover':
+            # Include P-little-delta effects in the moment results
+            P_delta = True
+        else:
+            # Do not include P-little delta effects in the moment results
+            P_delta = False
+
         # Check which axis is of interest
         if Direction == 'My':
             
             # Check which segment 'x' falls on
             for segment in self.SegmentsY:
-                
+
                 if round(x,10) >= round(segment.x1,10) and round(x,10) < round(segment.x2,10):
                     
-                    return segment.moment(x - segment.x1)
+                    return segment.moment(x - segment.x1, P_delta)
                 
             if isclose(x, self.L()):
                 
-                return self.SegmentsY[-1].moment(x - self.SegmentsY[-1].x1)
+                return self.SegmentsY[-1].moment(x - self.SegmentsY[-1].x1, P_delta)
                 
         elif Direction == 'Mz':
             
@@ -1092,11 +1115,11 @@ class Member3D():
                 
                 if round(x,10) >= round(segment.x1,10) and round(x,10) < round(segment.x2,10):
                     
-                    return segment.moment(x - segment.x1)
+                    return segment.moment(x - segment.x1, P_delta)
                 
             if isclose(x, self.L()):
                 
-                return self.SegmentsZ[-1].moment(x - self.SegmentsZ[-1].x1)
+                return self.SegmentsZ[-1].moment(x - self.SegmentsZ[-1].x1, P_delta)
         
         else:
             raise ValueError(f"Direction must be 'My' or 'Mz'. {Direction} was given.")
@@ -1115,6 +1138,14 @@ class Member3D():
         combo_name : string
             The name of the load combination to get the results for (not the combination itself).
         """
+
+        # Determine if a P-Delta analysis has been run
+        if self.model.solution == 'P-Delta' or self.model.solution == 'Pushover':
+            # Include P-little-delta effects in the moment results
+            P_delta = True
+        else:
+            # Do not include P-little delta effects in the moment results
+            P_delta = False
         
         # Segment the member if necessary
         if self.__solved_combo == None or combo_name != self.__solved_combo.name:
@@ -1123,7 +1154,7 @@ class Member3D():
         
         if Direction == 'Mz':
             
-            Mmax = self.SegmentsZ[0].moment(0)
+            Mmax = self.SegmentsZ[0].moment(0, P_delta)
 
             for segment in self.SegmentsZ:
                 
@@ -1133,7 +1164,7 @@ class Member3D():
                     
         if Direction == 'My':
             
-            Mmax = self.SegmentsY[0].moment(0)
+            Mmax = self.SegmentsY[0].moment(0, P_delta)
 
             for segment in self.SegmentsY:
                 
@@ -1163,25 +1194,29 @@ class Member3D():
             self._segment_member(combo_name)   
             self.__solved_combo = self.model.LoadCombos[combo_name]
         
+        # Determine if a P-Delta analysis has been run
+        if self.model.solution == 'P-Delta' or self.model.solution == 'Pushover':
+            # Include P-little-delta effects in the moment results
+            P_delta = True
+        else:
+            # Do not include P-little delta effects in the moment results
+            P_delta = False
+
         if Direction == 'Mz':
             
-            Mmin = self.SegmentsZ[0].moment(0)
+            Mmin = self.SegmentsZ[0].moment(0, P_delta)
 
             for segment in self.SegmentsZ:
                 
-                if segment.min_moment() < Mmin:
-                    
-                    Mmin = segment.min_moment()
+                if segment.min_moment(P_delta) < Mmin: Mmin = segment.min_moment(P_delta)
                     
         if Direction == 'My':
             
-            Mmin = self.SegmentsY[0].moment(0)
+            Mmin = self.SegmentsY[0].moment(0, P_delta)
 
             for segment in self.SegmentsY:
                 
-                if segment.min_moment() < Mmin:
-                    
-                    Mmin = segment.min_moment()
+                if segment.min_moment(P_delta) < Mmin: Mmin = segment.min_moment(P_delta)
         
         return Mmin
 
@@ -1546,6 +1581,11 @@ class Member3D():
             self._segment_member(combo_name)
             self.__solved_combo = self.model.LoadCombos[combo_name]
         
+        if self.model.solution == 'P-Delta' or self.model.solution == 'Pushover':
+            P_delta = True
+        else:
+            P_delta = False
+
         # Check which axis is of interest
         if Direction == 'dx':
             
@@ -1567,12 +1607,12 @@ class Member3D():
                 
                 if round(x,10) >= round(segment.x1,10) and round(x,10) < round(segment.x2,10):
                     
-                    return segment.deflection(x - segment.x1)
+                    return segment.deflection(x - segment.x1, P_delta)
                 
             if isclose(x, self.L()):
                 
                 lastIndex = len(self.SegmentsZ) - 1
-                return self.SegmentsZ[lastIndex].deflection(x - self.SegmentsZ[lastIndex].x1)
+                return self.SegmentsZ[lastIndex].deflection(x - self.SegmentsZ[lastIndex].x1, P_delta)
                 
         elif Direction == 'dz':
             
@@ -1893,10 +1933,8 @@ class Member3D():
         d = self.d(combo_name)           # Member local displacement vector
         
         # Get the local deflections and calculate the slope at the start of the member
-        # Note 1: The slope may not be available directly from the local displacement vector if member end releases have been used,
-        #         so slope-deflection has been applied to solve for it.
-        # Note 2: The traditional slope-deflection equations assume a sign convention opposite of what PyNite uses for moments about
-        #         the local y-axis, so a negative value has been applied to those values specifically.
+        # Note 1: The slope may not be available directly from the local displacement vector if member end releases have been used, so slope-deflection has been applied to solve for it.
+        # Note 2: The traditional slope-deflection equations assume a sign convention opposite of what PyNite uses for moments about the local y-axis, so a negative value has been applied to those values specifically.
         m1z = f[5, 0]       # local z-axis moment at start of member
         m2z = f[11, 0]      # local z-axis moment at end of member
         m1y = -f[4, 0]      # local y-axis moment at start of member
@@ -1937,10 +1975,10 @@ class Member3D():
             
             # Initialize the slope and displacement at the start of the segment
             if i > 0: # The first segment has already been initialized
-                SegmentsZ[i].theta1 = SegmentsZ[i-1].Slope(SegmentsZ[i-1].Length())
+                SegmentsZ[i].theta1 = SegmentsZ[i-1].slope(SegmentsZ[i-1].Length())
                 SegmentsZ[i].delta1 = SegmentsZ[i-1].deflection(SegmentsZ[i-1].Length())
                 SegmentsZ[i].delta_x1 = SegmentsZ[i-1].AxialDeflection(SegmentsZ[i-1].Length())
-                SegmentsY[i].theta1 = SegmentsY[i-1].Slope(SegmentsY[i-1].Length())
+                SegmentsY[i].theta1 = SegmentsY[i-1].slope(SegmentsY[i-1].Length())
                 SegmentsY[i].delta1 = SegmentsY[i-1].deflection(SegmentsY[i-1].Length())
                 SegmentsY[i].delta_x1 = SegmentsY[i-1].AxialDeflection(SegmentsY[i-1].Length())
                 
