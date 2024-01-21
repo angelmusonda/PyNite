@@ -1,10 +1,14 @@
 # %%
 
 from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, vstack, hstack, allclose
+
+from numpy.linalg import inv, pinv
+
 from numpy.linalg import inv
 
 from numpy import array, zeros, add, subtract, matmul, insert, cross, divide, linspace, transpose
 from numpy.linalg import inv, solve
+
 
 from math import isclose
 from PyNite.BeamSegZ import BeamSegZ
@@ -63,6 +67,10 @@ class Member3D():
         self._fxj = 0
         self._myj = 0
         self._mzj = 0
+
+        # Variable used to track plastic load reveral
+        self.i_reversal = False
+        self.j_reversal = False
 
         self.auxNode = auxNode # Optional auxiliary node used to define the member's local z-axis
         self.PtLoads = []   # A list of point loads & moments applied to the element (Direction, P, x, case='Case 1') or (Direction, M, x, case='Case 1')
@@ -275,23 +283,29 @@ class Member3D():
         if allclose(G, 0, atol=1e-14):
             return zeros((12, 12))
         else:
-            return -ke @ G @ inv(G.T @ ke @ G) @ G.T @ ke
+            return -ke @ G @ pinv(G.T @ ke @ G) @ G.T @ ke
     
-    def lamb(self, combo_name='Combo 1'):
+    def lamb(self, combo_name='Combo 1', push_combo='Push', step_num=1):
 
         # Get the elastic local stiffness matrix
         ke = self.k()
 
         # Get the total end forces applied to the element
-        f = self.f() - self.fer(combo_name)
-        d = self.d(combo_name)
+        f = self.f() - self.fer(combo_name) - self.fer(push_combo)*step_num
 
         # Get the gradient to the failure surface at at each end of the element
         if self.section is None:
             raise Exception('Nonlinear material analysis requires member sections to be defined. A section definition is missing for element ' + self.name + '.')
         else:
-            Gi = self.section.G(f[0], f[4], f[5])
-            Gj = self.section.G(f[6], f[10], f[11])
+            if self.i_reversal == False:
+                Gi = self.section.G(f[0], f[4], f[5])
+            else:
+                Gi = [[0], [0], [0]]
+            
+            if self.j_reversal == False:
+                Gj = self.section.G(f[6], f[10], f[11])
+            else:
+                Gj = [[0], [0], [0]]
         
         # Expand the gradients for a 12 degree of freedom element
         zeros_array = zeros((6, 1))
@@ -299,7 +313,8 @@ class Member3D():
         Gj = vstack(zeros_array, Gj)
         G = hstack(Gi, Gj)
 
-        return inv(G.T() @ ke @ G) @ G.T() @ ke @ d
+        #return inv(G.T() @ ke @ G) @ G.T() @ ke @ d_delta
+        pass
 
 
 

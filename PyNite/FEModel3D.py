@@ -5,11 +5,15 @@ import copy
 from math import isclose, ceil
 
 
+
+from numpy import array, zeros, matmul, divide, subtract, atleast_2d, all
+
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d
 
 from numpy import array, zeros, matmul, divide, subtract, atleast_2d, nanmax, argsort, ones, cos, sin, exp, imag, \
     outer
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
+
 
 from numpy.linalg import solve
 from scipy.linalg import inv
@@ -2758,10 +2762,25 @@ class FEModel3D():
                 # Inform the user which pushover load step we're on
                 if log:
                     print('- Beginning pushover load step #' + str(step_num))
+                
+                # Reset all member plastic load reversal flags to be `False`
+                for member in self.Members.values():
+                    member.pl_reverse = False
+
+                # Run/rerun this load step until no new unloaded member flags exist
+                run_step = True
+                while run_step == True:
+
+                    # Assume this iteration will converge
+                    run_step = False
+
+                    # Store the model's current displacements in case we need to revert
+                    D_temp = self._D
 
 
-                # Run the next pushover load step
-                Analysis._pushover_step(self, combo.name, push_combo, step_num, P1_push, FER1_push, D1_indices, D2_indices, D2, log, sparse, check_stability)
+                    # Run or rerun the next pushover load step
+                    d_Delta = Analysis._pushover_step(self, combo.name, push_combo, step_num, P1_push, FER1_push, D1_indices, D2_indices, D2, log, sparse, check_stability)
+
 
                 # Update nonlinear material member end forces for each member
                 for member in self.Members.values():
