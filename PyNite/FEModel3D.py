@@ -3059,6 +3059,13 @@ class FEModel3D():
           :type type_of_mass_matrix: str, optional
           :param damping_options: Dictionary containing damping options (optional).
           :type damping_options: dict, optional
+                \nAllowed keywords in damping_options:
+                - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
+                - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
+                - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
+                - 'first_mode_damping' (float): Damping ratio for the first mode.
+                - 'highest_mode_damping' (float): Damping ratio for the highest mode.
+                - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
 
           :raises Exception: Occurs when a singular stiffness matrix is found, indicating an unstable structure has been modeled.
           :raises ResultsNotFoundError: Raised if modal results are not available, as harmonic analysis requires modal results.

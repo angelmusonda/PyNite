@@ -210,7 +210,15 @@ class ModalResultsModelBuilder(ResultsModelBuilder):
     This class is used to build a results model with mode shapes for a specified mode.
 
     Args:
-        saved_model (str): The path to the saved finite element model file with results.
+        saved_model_path        response_type (str, optional): The type of response quantity requested:
+            - "DR" for real displacement
+            - "VR" for real velocity
+            - "AR" for real acceleration
+            - "DI" for imaginary displacement
+            - "VI" for imaginary velocity
+            - "AI" for imaginary acceleration
+            Default is "DR".
+    (str): The path to the saved finite element model file with results.
 
 
     Raises:
@@ -222,8 +230,8 @@ class ModalResultsModelBuilder(ResultsModelBuilder):
         result_model = builder.get_model(mode=3)  # Access the results model with mode shape data for mode 3.
     """
 
-    def __init__(self, saved_model):
-        super().__init__(saved_model)
+    def __init__(self, saved_model_path):
+        super().__init__(saved_model_path)
 
     def get_model(self,mode):
         """
