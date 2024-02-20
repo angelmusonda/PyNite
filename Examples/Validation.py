@@ -3,7 +3,7 @@ import pickle
 from numpy import linspace, sqrt
 
 from PyNite import FEModel3D
-from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, FRAResultsModelBuilder
+from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, FRAResultsModelBuilder, THAResultsModelBuilder
 from PyNite.Section import Section
 from PyNite.Visualization import Renderer
 
@@ -79,6 +79,11 @@ model.def_support(
 model.add_node_load("C", Direction='FX', P=3000, case='Harmonic')
 model.add_load_combo(name="Harmonic", factors={"Harmonic": 1})
 
+# THA load
+model.add_node_load("C", Direction='FX', P=100E3, case='THA')
+model.def_load_profile("THA", time=[0,0.01], profile=[1,1])
+model.add_load_combo(name='THA', factors={'THA':1})
+
 # Analyse
 model.analyze_modal(num_modes=7)
 
@@ -87,7 +92,12 @@ model.analyze_harmonic(
     f1=40, f2=160, f_div=120, harmonic_combo="Harmonic",
     damping_options=model_damping
 )
-
+model.analyze_linear_time_history_newmark_beta(
+    combo_name='THA',
+    analysis_method='direct',
+    step_size=0.0001,
+    response_duration=0.1
+)
 with open('validation.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
@@ -96,25 +106,37 @@ model_builder = FRAResultsModelBuilder(saved_model_path='validation.pickle')
 
 freq = model.LoadFrequencies
 
-disp_node_C = []
+disp_node_V = []
 
 for f in freq:
     solved_model = model_builder.get_model(freq=f, response_type='DR')
     disp_R = solved_model.Nodes['V'].DX[model.FRA_combo_name] * 1E6
     solved_model = model_builder.get_model(freq = f, response_type='DI')
     disp_I = solved_model.Nodes['V'].DX[model.FRA_combo_name] * 1E6
-    disp_node_C.append(sqrt(disp_R**2+disp_I**2))
+    disp_node_V.append(sqrt(disp_R**2+disp_I**2))
 
-# EXPORT csv
+
+model_builder = THAResultsModelBuilder(saved_model_path='validation.pickle')
+time = model.TIME_THA()
+rotation_node_H = []
+
+for t in time:
+    solved_model = model_builder.get_model(time=t, response_type="D")
+    rotation = -1*solved_model.Nodes['H'].RY[model.THA_combo_name]
+    rotation_node_H.append(rotation)
+
+
+# EXPORT HARMONIC csv
 import csv
 
 # Zip the lists to create pairs of elements
-data = list(zip(freq, disp_node_C))
+data = list(zip(freq, disp_node_V))
 
 # Specify the file path for the CSV file
 csv_file_path = r'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Validation\FRA\fra_pynite.csv'
 
 # Write data to the CSV file
+""""
 with open(csv_file_path, 'w', newline='') as csvfile:
     # Create a CSV writer object
     csv_writer = csv.writer(csvfile)
@@ -123,11 +145,31 @@ with open(csv_file_path, 'w', newline='') as csvfile:
     csv_writer.writerow(['Freq', 'Disp'])
 
     # Write the data from the zipped lists
+    csv_writer.writerows(data) """
+
+
+# EXPORT THA csv
+import csv
+
+# Zip the lists to create pairs of elements
+data = list(zip(time, rotation_node_H))
+
+# Specify the file path for the CSV file
+csv_file_path = r'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Validation\THA\tha_pynite.csv'
+
+# Write data to the CSV file
+
+with open(csv_file_path, 'w', newline='') as csvfile:
+    # Create a CSV writer object
+    csv_writer = csv.writer(csvfile)
+
+    # Write the data from the zipped lists
     csv_writer.writerows(data)
 
 
 print(model.NATURAL_FREQUENCIES())
 
+"""
 renderer = Renderer(solved_model)
 renderer.render_loads = False
 renderer.deformed_shape = True
@@ -137,4 +179,4 @@ renderer.render_nodes = True
 renderer.labels = False
 renderer.combo_name = model.FRA_combo_name
 renderer.annotation_size = 0.01
-renderer.render_model()
+renderer.render_model() """

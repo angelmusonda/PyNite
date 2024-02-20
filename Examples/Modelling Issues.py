@@ -230,7 +230,7 @@ data = column_stack((time, values))
 csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\EL Centro Processed.csv'
 
 # Save the data to a CSV file
-#savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
+savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
 print('num values = ', num_values)
 # Close the file
 file.close()
@@ -240,6 +240,8 @@ model.analyze_modal(num_modes=5)
 #TIME HISTORY ANALYSIS
 
 damping = dict(r_alpha = 0.01, r_beta = 0.01)
+
+
 model.analyze_linear_time_history_newmark_beta(
     analysis_method='modal',
     AgY=ground_acceleration,
@@ -249,16 +251,17 @@ model.analyze_linear_time_history_newmark_beta(
     damping_options=damping,
     recording_frequency=10
 
-) 
+)
 
 with open('solved_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
+
     pickle.dump(model, file)
 
 
 from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, THAResultsModelBuilder
 #model_builder = ModalResultsModelBuilder('solved_model.pickle')
-model_builder = THAResultsModelBuilder(saved_model='solved_model.pickle')
+model_builder = THAResultsModelBuilder(saved_model_path='solved_model.pickle')
 #solved_model = model_builder.get_model(mode = 1)
 
 print('MODEL BUILDER COMPLETE')
@@ -268,16 +271,42 @@ d = []
 
 time_for_plot = linspace(0,50,5000)
 
+solved_model = model_builder.get_model(time=1, response_type='D')
+# Get the quad of interest
+target_quad = None
+target_node = None
+for quad_name in solved_model.Meshes['W1_S0'].elements:
+    quad = solved_model.Quads[quad_name]
+    if quad.i_node.name == 'N6':
+        target_node = quad.i_node
+        target_quad = quad.name
+        break
+    elif quad.j_node.name == 'N6':
+        target_node = quad.j_node
+        target_quad = quad.name
+        break
+    elif quad.m_node.name == 'N6':
+        target_node = quad.m_node
+        target_quad = quad.name
+        break
+    elif quad.n_node.name == 'N6':
+        target_node = quad.n_node
+        target_quad = quad.name
+        break
 
+stress_history = []
 for t in time_for_plot:
    solved_model = model_builder.get_model(time=t,response_type='D')
    d.append(1000*solved_model.Nodes['N122'].DY['THA combo'])
+   stress = -1*solved_model.Quads[target_quad].membrane(s=-1,r=-1, combo_name=solved_model.THA_combo_name)[0]
 
-plt.plot(time_for_plot, d)
+   stress_history.append(stress)
+
+plt.plot(time_for_plot, stress_history)
 #plt.plot(solved_model.TIME_THA(),solved_model.DISPLACEMENT_THA()[solved_model.Nodes['N122'].ID * 6 + 1,:])
 plt.show()
 
-data = column_stack((array(time_for_plot), array(d)))
+data = column_stack((array(time_for_plot), array(stress_history)))
 
 # Specify the path for the CSV file
 csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\disp.txt'
@@ -285,12 +314,18 @@ csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Ide
 # Save the data to a CSV file
 savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
 
+stress_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\stress.csv'
+
+# Save the data to a CSV file
+savetxt(stress_path, data, delimiter=' ', header='time,stress', comments='')
+
 #print(solved_model.NATURAL_FREQUENCIES())
 from PyNite.Visualization import render_model
 
-solved_model = model_builder.get_model(time=5.136, response_type='D')
+solved_model = model_builder.get_model(time=25, response_type='D')
+print("Max shear ",solved_model.Meshes['W1_S0'].max_shear(combo = 'THA combo'))
 renderer = render_model(solved_model,
-                        color_map='Txy',
+                        color_map='Sx',
                         combo_name='THA combo',
                         deformed_shape=True,
                         deformed_scale=100,

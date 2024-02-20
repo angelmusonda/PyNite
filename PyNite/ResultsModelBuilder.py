@@ -315,8 +315,8 @@ class THAResultsModelBuilder(ResultsModelBuilder):
             result_model = builder.get_model(time=2.0, response_type="D")  # Access the results model with data at time instance 2.0 and displacement response.
         """
 
-    def __init__(self, saved_model):
-        super().__init__(saved_model)
+    def __init__(self, saved_model_path):
+        super().__init__(saved_model_path)
 
     def get_model(self, time, response_type='D'):
         """
