@@ -239,17 +239,17 @@ model.analyze_modal(num_modes=5)
 
 #TIME HISTORY ANALYSIS
 
-damping = dict(r_alpha = 0.01, r_beta = 0.01)
+damping = dict(r_alpha = 0.852804, r_beta = 0.00106601)
 
 
 model.analyze_linear_time_history_newmark_beta(
-    analysis_method='modal',
+    analysis_method='direct',
     AgY=ground_acceleration,
     step_size=0.01,
     response_duration=50,
     log=True,
     damping_options=damping,
-    recording_frequency=10
+    recording_frequency=1
 
 )
 
@@ -298,7 +298,7 @@ stress_history = []
 for t in time_for_plot:
    solved_model = model_builder.get_model(time=t,response_type='D')
    d.append(1000*solved_model.Nodes['N122'].DY['THA combo'])
-   stress = -1*solved_model.Quads[target_quad].membrane(s=-1,r=-1, combo_name=solved_model.THA_combo_name)[0]
+   stress = -1e-6 *solved_model.Quads[target_quad].membrane(s=-1,r=-1, combo_name=solved_model.THA_combo_name)[0]
 
    stress_history.append(stress)
 
@@ -314,22 +314,26 @@ csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Ide
 # Save the data to a CSV file
 savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
 
-stress_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\stress.csv'
+stress_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\PyNite Stress.csv'
 
 # Save the data to a CSV file
-savetxt(stress_path, data, delimiter=' ', header='time,stress', comments='')
+savetxt(stress_path, data, delimiter=',', comments='')
 
 #print(solved_model.NATURAL_FREQUENCIES())
-from PyNite.Visualization import render_model
+from PyNite.Visualization import Renderer
 
 solved_model = model_builder.get_model(time=25, response_type='D')
-print("Max shear ",solved_model.Meshes['W1_S0'].max_shear(combo = 'THA combo'))
-renderer = render_model(solved_model,
-                        color_map='Sx',
-                        combo_name='THA combo',
-                        deformed_shape=True,
-                        deformed_scale=100,
-                        annotation_size=0.1,
-                        render_loads=False)
 
-print(solved_model.LoadCombos)
+
+renderer = Renderer(solved_model)
+#renderer.color_map = 'Sx'
+#renderer.combo_name = solved_model.THA_combo_name
+#renderer.deformed_shape = True
+renderer.combo_name = solved_model.THA_combo_name
+renderer.render_loads = False
+renderer.render_nodes = False
+renderer.labels = False
+renderer.annotation_size = 0.1
+renderer.theme = 'print'
+renderer.render_model()
+

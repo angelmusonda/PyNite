@@ -1909,8 +1909,7 @@ def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
             a_prev = a_current
             v_prev = v_current
             d_prev = d_current
-    import numpy
-    print(numpy.linalg.norm(D))
+
     return D, V, A
 
 def update_progress(step, total, process_name):
