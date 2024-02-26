@@ -5,7 +5,7 @@ import copy
 from math import ceil
 
 from numpy import array, zeros, matmul, subtract, atleast_2d, argsort, cos, sin, imag, \
-    outer, concatenate
+    outer, concatenate, arange
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 
 from numpy.linalg import solve, eig
@@ -3743,8 +3743,9 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K_total = self.K(combo_name, log, False, sparse).tolil()
-            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
+            K_total = self.K(combo_name, log, False, sparse).tocsr()
+            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tocsr()
+
             K11, K12, K21, K22 = Analysis._partition(self, K_total, D1_indices,D2_indices)
             M11, M12, M21, M22 = Analysis._partition(self, M_total, D1_indices, D2_indices)
 
@@ -3773,11 +3774,21 @@ class FEModel3D():
         unp_influence_X = zeros((total_dof,1))
         unp_influence_Y = zeros((total_dof,1))
         unp_influence_Z = zeros((total_dof,1))
+
+        """
         while i < total_dof:
             unp_influence_X[i+0,0] = 1
             unp_influence_Y[i+1,0] = 1
             unp_influence_Z[i+2,0] = 1
             i += 6
+        """
+
+        # HOPING THIS TO BE FASTER THAN THE ABOVE LOOP
+        indices = arange(0, total_dof, 6)
+
+        unp_influence_X[indices + 0] = 1
+        unp_influence_Y[indices + 1] = 1
+        unp_influence_Z[indices + 2] = 1
 
         # Partition the influence vectors
         influence_X = Analysis._partition(self,unp_influence_X, D1_indices, D2_indices)[0]

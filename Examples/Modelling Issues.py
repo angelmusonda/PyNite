@@ -231,11 +231,11 @@ csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Ide
 
 # Save the data to a CSV file
 savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
-print('num values = ', num_values)
+
 # Close the file
 file.close()
 
-model.analyze_modal(num_modes=5)
+model.analyze_modal(num_modes=10)
 
 #TIME HISTORY ANALYSIS
 
@@ -264,7 +264,6 @@ from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, THAResultsModel
 model_builder = THAResultsModelBuilder(saved_model_path='solved_model.pickle')
 #solved_model = model_builder.get_model(mode = 1)
 
-print('MODEL BUILDER COMPLETE')
 
 from matplotlib import pyplot as plt
 d = []
@@ -302,9 +301,15 @@ for t in time_for_plot:
 
    stress_history.append(stress)
 
-plt.plot(time_for_plot, stress_history)
+
+# SAVE MODAL RESULTS
+modes_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\PyNite modes.txt'
+
+# Save the data to a CSV file
+savetxt(modes_path, model.NATURAL_FREQUENCIES(), delimiter=',', comments='')
+#plt.plot(time_for_plot,d)
 #plt.plot(solved_model.TIME_THA(),solved_model.DISPLACEMENT_THA()[solved_model.Nodes['N122'].ID * 6 + 1,:])
-plt.show()
+#plt.show()
 
 data = column_stack((array(time_for_plot), array(stress_history)))
 
@@ -312,12 +317,18 @@ data = column_stack((array(time_for_plot), array(stress_history)))
 csv_file_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Ground Motion Data EL Centro\disp.txt'
 
 # Save the data to a CSV file
-savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
+#savetxt(csv_file_path, data, delimiter=' ', header='time,acceleration', comments='')
 
-stress_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\PyNite Stress.csv'
+#stress_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\PyNite Stress.csv'
 
 # Save the data to a CSV file
-savetxt(stress_path, data, delimiter=',', comments='')
+#savetxt(stress_path, data, delimiter=',', comments='')
+
+disp_data = column_stack((array(time_for_plot), array(d)))
+disp_path = 'D:\MEng Civil Engineering - Angel Musonda\Research\Research Idea 2 - PyNite FEA Structural Dynamics\Results\Case Study 1\PyNite Disp.csv'
+
+# Save the data to a CSV file
+savetxt(disp_path, disp_data, delimiter=',', comments='')
 
 #print(solved_model.NATURAL_FREQUENCIES())
 from PyNite.Visualization import Renderer

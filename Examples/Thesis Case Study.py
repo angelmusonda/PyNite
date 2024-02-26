@@ -4,7 +4,7 @@ from PyNite.Mesh import RectangleMesh
 
 # MODELLING
 # Instantiate analysis model
-"""
+
 model = FEModel3D()
 
 # Material definition
@@ -115,42 +115,27 @@ def add_x_direction_wall(model:FEModel3D,name,wall_height,wall_width,thickness,o
 def add_floor_beams(model:FEModel3D, z):
     # Y direction beams
     for x in x_axis:
-        for y in y_axis:
-            if y == max(y_axis): break
-            name = model.unique_name(model.Members, 'B')
-            model.add_node(name+'1',x,y,z)
-            model.add_node(name+'2', x, y+5, z)
-            model.add_member(name,name+'1',name+'2','concrete',*beam_section)
-            #model.merge_duplicate_nodes()
+        name = model.unique_name(model.Members, 'B')
+        model.add_node(name+'1',x,0,z)
+        model.add_node(name+'2',x,35,z)
+        model.add_member(name, name + '1', name + '2', 'concrete', *beam_section)
+
 
     # X direction beams
     for y in y_axis:
-        for x in x_axis:
-            if x == max(x_axis): break
-            name = model.unique_name(model.Members, 'B')
-            model.add_node(name+'1', x, y, z)
-            model.add_node(name+'2', x+5, y, z)
-            model.add_member(name, name+'1', name+'2', 'concrete', *beam_section)
-            #model.merge_duplicate_nodes()
+        name = model.unique_name(model.Members, 'B')
+        model.add_node(name + '1', 0, y, z)
+        model.add_node(name + '2', 35, y, z)
+        model.add_member(name, name + '1', name + '2', 'concrete', *beam_section)
 
 num_storey = len(z_axis)
 roof_level = z_axis[num_storey-1]
+
+for node in ground_column_node_names:
+    column_name = model.unique_name(model.Members, 'C')
+    add_column(model, column_name,  max(z_axis), node)
+
 for z in z_axis:
-    # Add columns for first floor
-    for node in ground_column_node_names:
-        if z == 0:
-            column_name = model.unique_name(model.Members,'C')
-            add_column(model,column_name,3,node)
-
-        else:
-            new_node_name = model.unique_name(model.Nodes, 'N')
-            node_x = model.Nodes[node].X
-            node_y = model.Nodes[node].Y
-            model.add_node(new_node_name,node_x,node_y,z)
-
-            column_name = model.unique_name(model.Members,'C')
-            add_column(model,column_name,3,new_node_name)
-
 
     # Add walls
     add_y_direction_wall(model,'W1_S'+str(z),wall_height=3,wall_width=5,thickness=0.2,
@@ -227,7 +212,7 @@ with open('large_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-"""
+
 
 # RETRIEVE MODEL
 import pickle
