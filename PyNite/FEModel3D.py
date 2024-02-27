@@ -3996,6 +3996,10 @@ class FEModel3D():
         except:
             raise Exception("Error occurred during time history analysis")
 
+
+        if log:
+            print('\n- Tidying things up')
+
         # Form the global response vectors D, V and A
         #D = zeros((len(self.Nodes) * 6, total_steps))
         #V = zeros((len(self.Nodes) * 6, total_steps))
@@ -4072,15 +4076,6 @@ class FEModel3D():
         self._VELOCITY_THA = V
         self._ACCELERATION_THA = A
 
-        # Put the displacements at the end of the analysis into each node
-        for node in self.Nodes.values():
-            node.DX[combo_name] = D[node.ID * 6 + 0, -1]
-            node.DY[combo_name] = D[node.ID * 6 + 1, -1]
-            node.DZ[combo_name] = D[node.ID * 6 + 2, -1]
-            node.RX[combo_name] = D[node.ID * 6 + 3, -1]
-            node.RY[combo_name] = D[node.ID * 6 + 4, -1]
-            node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
-
         # Calculate reactions
         # The damping models "rayleigh" and "modal" do not offer methods for specifying the complete
         # damping matrix. As a result, the reaction forces are solely computed based on elastic and
@@ -4098,8 +4093,17 @@ class FEModel3D():
         # Save the reactions
         self._REACTIONS_THA = R
 
-        # Put the reactions at the last time step into the constrained nodes
+
         for node in self.Nodes.values():
+            # Put the displacements at the end of the analysis into each node
+            node.DX[combo_name] = D[node.ID * 6 + 0, -1]
+            node.DY[combo_name] = D[node.ID * 6 + 1, -1]
+            node.DZ[combo_name] = D[node.ID * 6 + 2, -1]
+            node.RX[combo_name] = D[node.ID * 6 + 3, -1]
+            node.RY[combo_name] = D[node.ID * 6 + 4, -1]
+            node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
+
+            # Put the reactions at the last time step into the constrained nodes
             if node.support_DX == True:
                 node.RxnFX[combo_name] = R[node.ID * 6 + 0, -1]
             else:

@@ -1,3 +1,5 @@
+import numpy
+
 from PyNite import FEModel3D, Section
 from PyNite.Mesh import RectangleMesh
 # UNCOMMENT TO EDIT MODEL
@@ -192,13 +194,13 @@ for z in z_axis:
         model.Meshes['Floor_'+str(z+3)].add_rect_opening('Open_'+str(z+3),15,15,5,5)
     model.Meshes['Floor_'+str(z+3)].generate()
 
-import time
-start_time = time.time()
-print('Merging Start Time : ',start_time)
+import time as global_time
+start_time = global_time.time()
+print('- Building model started')
 model.merge_duplicate_nodes(tolerance=0.001)
-end_time = time.time()
-print('Merging End Time : ', end_time)
-print('Duration of merging : ', (end_time-start_time)/60 , ' mins')
+end_time = global_time.time()
+print('- Building model completed - Duration: ', numpy.round((end_time-start_time)/60, 2) , ' mins')
+
 
 # ADD SUPPORTS
 for node in model.Nodes.values():
@@ -279,6 +281,7 @@ file.close()
 
 #TIME HISTORY ANALYSIS
 
+start_time = global_time.time()
 damping = dict(r_alpha = 0.01, r_beta = 0.01)
 model.analyze_linear_time_history_newmark_beta(
     analysis_method='direct',
@@ -289,6 +292,11 @@ model.analyze_linear_time_history_newmark_beta(
     damping_options=damping
 
 )
+end_time = global_time.time()
+print('- Analysis duration: ', numpy.round((end_time-start_time)/60, 2) , ' mins')
+
+
+
 
 from PyNite.Visualization import Renderer
 renderer = Renderer(model)
@@ -302,7 +310,7 @@ renderer.combo_name = model.THA_combo_name
 renderer.deformed_scale = 100
 renderer.render_model()
 
-raise ValueError('stopped')
+#raise ValueError('stopped')
 
 with open('solved_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
@@ -311,7 +319,7 @@ with open('solved_model.pickle', 'wb') as file:
 
 from PyNite.ResultsModelBuilder import ModalResultsModelBuilder, THAResultsModelBuilder
 #model_builder = ModalResultsModelBuilder('solved_model.pickle')
-model_builder = THAResultsModelBuilder(saved_model='solved_model.pickle')
+model_builder = THAResultsModelBuilder(saved_model_path='solved_model.pickle')
 #solved_model = model_builder.get_model(mode = 1)
 
 print('MODEL BUILDER COMPLETE')
@@ -319,12 +327,12 @@ print('MODEL BUILDER COMPLETE')
 from matplotlib import pyplot as plt
 d = []
 
-time_for_plot = linspace(0,50,5000)
+time_for_plot = linspace(0,10,1000)
 
 
 for t in time_for_plot:
    solved_model = model_builder.get_model(time=t,response_type='D')
-   d.append(1000*solved_model.Nodes['N122'].DY['THA combo'])
+   d.append(1000*solved_model.Nodes['N1'].DY['THA combo'])
 
 plt.plot(time_for_plot, d)
 #plt.plot(solved_model.TIME_THA(),solved_model.DISPLACEMENT_THA()[solved_model.Nodes['N122'].ID * 6 + 1,:])
