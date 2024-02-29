@@ -294,6 +294,9 @@ model.analyze_linear_time_history_newmark_beta(
 )
 end_time = global_time.time()
 print('- Analysis duration: ', numpy.round((end_time-start_time)/60, 2) , ' mins')
+print('Nodes: ', len(model.Nodes))
+print('Shells :', len(model.Quads))
+
 
 
 

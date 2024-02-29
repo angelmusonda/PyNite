@@ -4134,6 +4134,9 @@ class FEModel3D():
             print('Analysis Complete')
             print('')
 
+        print('TOTAL DOF: ', K_total.shape)
+        print('Free DOF :', K11.shape)
+
         # Save the load combination name under which the results can be viewed
         self.THA_combo_name = combo_name
 
