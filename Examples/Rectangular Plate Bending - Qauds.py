@@ -57,7 +57,7 @@ model.analyze(check_statics=True)
 from PyNite.Visualization import Renderer
 renderer = Renderer(model)
 renderer.annotation_size = mesh_size/6
-renderer.deformed_shape = False
+renderer.deformed_shape = True
 renderer.combo_name = '1.0W'
 renderer.color_map = 'Mx'
 renderer.render_loads = True
