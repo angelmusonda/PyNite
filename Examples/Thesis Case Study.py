@@ -6,7 +6,7 @@ from PyNite.Mesh import RectangleMesh
 
 # MODELLING
 # Instantiate analysis model
-
+"""
 model = FEModel3D()
 
 # Material definition
@@ -214,7 +214,7 @@ with open('large_model.pickle', 'wb') as file:
     # Serialize and save the object to the file
     pickle.dump(model, file)
 
-
+"""
 
 # RETRIEVE MODEL
 import pickle
@@ -278,7 +278,7 @@ print('num values = ', num_values)
 # Close the file
 file.close()
 
-
+"""
 #TIME HISTORY ANALYSIS
 
 start_time = global_time.time()
@@ -297,21 +297,23 @@ print('- Analysis duration: ', numpy.round((end_time-start_time)/60, 2) , ' mins
 print('Nodes: ', len(model.Nodes))
 print('Shells :', len(model.Quads))
 
-
+"""
 
 
 
 from PyNite.Visualization import Renderer
 renderer = Renderer(model)
 renderer.annotation_size = 0.1
-renderer.window_width = 750
-renderer.window_height = 400
-renderer.deformed_shape = True
+#renderer.window_width = 750
+#renderer.window_height = 400
+renderer.deformed_shape = False
 renderer.render_loads = False
 renderer.labels = False
-renderer.combo_name = model.THA_combo_name
+#renderer.combo_name = model.THA_combo_name
 renderer.deformed_scale = 100
 renderer.render_model()
+
+raise ValueError('stopped')
 
 #raise ValueError('stopped')
 
@@ -354,10 +356,10 @@ from PyNite.Visualization import render_model
 
 solved_model = model_builder.get_model(time=5.136, response_type='D')
 renderer = render_model(solved_model,
-                        color_map='Txy',
+                        #color_map='Txy',
                         combo_name='THA combo',
-                        deformed_shape=True,
-                        deformed_scale=100,
+                        deformed_shape=False,
+                        #deformed_scale=100,
                         annotation_size=0.1,
                         render_loads=False)
 

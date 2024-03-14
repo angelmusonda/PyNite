@@ -5,7 +5,7 @@ import copy
 from math import ceil
 
 from numpy import array, zeros, matmul, subtract, atleast_2d, argsort, cos, sin, imag, \
-    outer, concatenate, arange
+    outer, concatenate
 from numpy import seterr, real, pi, sqrt, ndarray, interp, linspace, sum, append, arctan2
 
 from numpy.linalg import solve, eig
@@ -1245,11 +1245,11 @@ class FEModel3D():
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def add_member_dist_load(self, member_name, Direction, w1, w2, x1=None, x2=None, case='Case 1'):
+    def add_member_dist_load(self, Member, Direction, w1, w2, x1=None, x2=None, case='Case 1'):
         """Adds a member distributed load to the model.
 
-        :param member_name: The name of the member the load is being appied to.
-        :type member_name: str
+        :param Member: The name of the member the load is being appied to.
+        :type Member: str
         :param Direction: The direction in which the load is to be applied. Valid values are `'Fx'`,
                           `'Fy'`, `'Fz'`, `'FX'`, `'FY'`, or `'FZ'`.
                           Note that lower-case notation indicates use of the beam's local
@@ -1282,38 +1282,17 @@ class FEModel3D():
             start = x1
 
         if x2 == None:
-            end = self.Members[member_name].L()
+            end = self.Members[Member].L()
         else:
             end = x2
 
         # Add the distributed load to the member
+        self.Members[Member].DistLoads.append((Direction, w1, w2, start, end, case))
 
-        self.Members[member_name].DistLoads.append((Direction, w1, w2, start, end, case))
-        
         # Flag the model as unsolved
         self.solution = None
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
-
-    def add_member_self_weight(self, global_direction, factor, case='Case 1'):
-        """Adds self weight to all members in the model. Note that this only works for members. Plate and Quad elements will be ignored by this command.
-
-        :param global_direction: The global direction to apply the member load in: 'FX', 'FY', or 'FZ'.
-        :type global_direction: string
-        :param factor: A factor to apply to the member self-weight. Can be used to account for items like connections.
-        :type factor: float
-        :param case: The load case to apply the self-weight to. Defaults to 'Case 1'
-        :type case: str, optional
-        """
-
-        # Step through each member in the model
-        for member in self.Members.values():
-
-            # Calculate the self weight of the member
-            self_weight = factor*member.material.rho*member.A
-
-            # Add the self-weight load to the member
-            self.add_member_dist_load(member.name, global_direction, self_weight, self_weight, case=case)
 
     def add_plate_surface_pressure(self, plate_name, pressure, case='Case 1'):
         """Adds a surface pressure to the rectangular plate element.
@@ -3062,7 +3041,7 @@ class FEModel3D():
         """
           Conducts harmonic analysis for a specified harmonic load combination within a defined load frequency range. This analysis presupposes that a modal analysis has been conducted beforehand.
 
-          In this analysis, prescribed displacements are treated as amplitudes that share the same frequency as the applied forces. Consequently, the analysis can also be executed exclusively for prescribed displacements, effectively using them as the sole source of excitation.
+          In this anealysis, prescribed displacements are treated as amplitudes that share the same frequency as the applied forces. Consequently, the analysis can also be executed exclusively for prescribed displacements, effectively using them as the sole source of excitation.
           :param f1: The lowest forcing frequency to consider.
           :type f1: float
           :param f2: The highest forcing frequency to consider.
@@ -3080,13 +3059,6 @@ class FEModel3D():
           :type type_of_mass_matrix: str, optional
           :param damping_options: Dictionary containing damping options (optional).
           :type damping_options: dict, optional
-                \nAllowed keywords in damping_options:
-                - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
-                - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
-                - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
-                - 'first_mode_damping' (float): Damping ratio for the first mode.
-                - 'highest_mode_damping' (float): Damping ratio for the highest mode.
-                - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
 
           :raises Exception: Occurs when a singular stiffness matrix is found, indicating an unstable structure has been modeled.
           :raises ResultsNotFoundError: Raised if modal results are not available, as harmonic analysis requires modal results.
@@ -3764,9 +3736,8 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K_total = self.K(combo_name, log, False, sparse).tocsr()
-            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tocsr()
-
+            K_total = self.K(combo_name, log, False, sparse).tolil()
+            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
             K11, K12, K21, K22 = Analysis._partition(self, K_total, D1_indices,D2_indices)
             M11, M12, M21, M22 = Analysis._partition(self, M_total, D1_indices, D2_indices)
 
@@ -3795,21 +3766,11 @@ class FEModel3D():
         unp_influence_X = zeros((total_dof,1))
         unp_influence_Y = zeros((total_dof,1))
         unp_influence_Z = zeros((total_dof,1))
-
-        """
         while i < total_dof:
             unp_influence_X[i+0,0] = 1
             unp_influence_Y[i+1,0] = 1
             unp_influence_Z[i+2,0] = 1
             i += 6
-        """
-
-        # HOPING THIS TO BE FASTER THAN THE ABOVE LOOP
-        indices = arange(0, total_dof, 6)
-
-        unp_influence_X[indices + 0] = 1
-        unp_influence_Y[indices + 1] = 1
-        unp_influence_Z[indices + 2] = 1
 
         # Partition the influence vectors
         influence_X = Analysis._partition(self,unp_influence_X, D1_indices, D2_indices)[0]
@@ -4017,10 +3978,6 @@ class FEModel3D():
         except:
             raise Exception("Error occurred during time history analysis")
 
-
-        if log:
-            print('\n- Tidying things up')
-
         # Form the global response vectors D, V and A
         #D = zeros((len(self.Nodes) * 6, total_steps))
         #V = zeros((len(self.Nodes) * 6, total_steps))
@@ -4097,6 +4054,15 @@ class FEModel3D():
         self._VELOCITY_THA = V
         self._ACCELERATION_THA = A
 
+        # Put the displacements at the end of the analysis into each node
+        for node in self.Nodes.values():
+            node.DX[combo_name] = D[node.ID * 6 + 0, -1]
+            node.DY[combo_name] = D[node.ID * 6 + 1, -1]
+            node.DZ[combo_name] = D[node.ID * 6 + 2, -1]
+            node.RX[combo_name] = D[node.ID * 6 + 3, -1]
+            node.RY[combo_name] = D[node.ID * 6 + 4, -1]
+            node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
+
         # Calculate reactions
         # The damping models "rayleigh" and "modal" do not offer methods for specifying the complete
         # damping matrix. As a result, the reaction forces are solely computed based on elastic and
@@ -4114,17 +4080,8 @@ class FEModel3D():
         # Save the reactions
         self._REACTIONS_THA = R
 
-
+        # Put the reactions at the last time step into the constrained nodes
         for node in self.Nodes.values():
-            # Put the displacements at the end of the analysis into each node
-            node.DX[combo_name] = D[node.ID * 6 + 0, -1]
-            node.DY[combo_name] = D[node.ID * 6 + 1, -1]
-            node.DZ[combo_name] = D[node.ID * 6 + 2, -1]
-            node.RX[combo_name] = D[node.ID * 6 + 3, -1]
-            node.RY[combo_name] = D[node.ID * 6 + 4, -1]
-            node.RZ[combo_name] = D[node.ID * 6 + 5, -1]
-
-            # Put the reactions at the last time step into the constrained nodes
             if node.support_DX == True:
                 node.RxnFX[combo_name] = R[node.ID * 6 + 0, -1]
             else:
@@ -4154,9 +4111,6 @@ class FEModel3D():
             print('')
             print('Analysis Complete')
             print('')
-
-        print('TOTAL DOF: ', K_total.shape)
-        print('Free DOF :', K11.shape)
 
         # Save the load combination name under which the results can be viewed
         self.THA_combo_name = combo_name
