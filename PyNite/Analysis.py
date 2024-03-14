@@ -1,7 +1,18 @@
-from math import isclose
+import sys
+
+from math import isclose, ceil
+
+from numpy.lib.function_base import interp, gradient
+
+from PyNite import FEModel3D
 from PyNite.LoadCombo import LoadCombo
-from numpy import array, atleast_2d, zeros, subtract, matmul, divide, seterr, nanmax
+
+from numpy import subtract, matmul, divide, seterr, nanmax
+
+from numpy import array, atleast_2d, zeros, diag, ones, identity, linspace
 from numpy.linalg import solve
+import logging
+
 
 def _prepare_model(model):
     """Prepares a model for analysis by ensuring at least one load combination is defined, generating all meshes that have not already been generated, activating all non-linear members, and internally numbering all nodes and elements.
@@ -1082,6 +1093,7 @@ def _partition_D(model):
     # Return the indices and the known displacements
     return D1_indices, D2_indices, D2
 
+
 def _partition(model, unp_matrix, D1_indices, D2_indices):
     """Partitions a matrix (or vector) into submatrices (or subvectors) based on degree of freedom boundary conditions.
 
@@ -1112,12 +1124,362 @@ def _partition(model, unp_matrix, D1_indices, D2_indices):
         m22 = unp_matrix[D2_indices, :][:, D2_indices]
         return m11, m12, m21, m22
 
+
+def _D2(model, expanded_time, D2_length):
+    """
+    Builds the enforced displacements, velocities and accelerations for the entire duration of analysis.
+
+    :param model: The finite element model
+    :type model: FEModel3D
+    :param expanded_time: An array of time instances for analysis
+    :type expanded_time: ndarray
+    :param D2_length: Number of constrained degrees of freedom
+    :type D2_length: int
+    :return: Prescribed displacements, velocities and accelerstions for the entire duration on analysis.
+    :rtype: ndarray, ndarray, ndarray, ndarray
+
+    """
+
+    expanded_time_length = len(expanded_time)
+
+    D2 = zeros((D2_length, expanded_time_length))
+    V2 = zeros((D2_length, expanded_time_length))
+    A2 = zeros((D2_length, expanded_time_length))
+
+    # Default displacement profile, which is just ones
+    default_profile = ones((1,expanded_time_length))
+
+    profile_values= model.DisplacementProfiles
+    profile_keys = model.DisplacementProfiles.keys()
+    # Create the auxiliary table
+
+    # Variable for indexing
+    i = 0
+    for node in model.Nodes.values():
+
+        # Unknown displacement DX
+        if node.support_DX==False and node.EnforcedDX == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement DX
+        elif node.EnforcedDX != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'DX':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedDX
+                V2[i,:] = vel_profile_final*node.EnforcedDX
+                A2[i,:] = acc_profile_final*node.EnforcedDX
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedDX * default_profile
+
+            # Increment i
+            i += 1
+
+        # Support at DX
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+        # Unknown displacement DY
+        if node.support_DY==False and node.EnforcedDY == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement DY
+        elif node.EnforcedDY != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'DY':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedDY
+                V2[i,:] = vel_profile_final*node.EnforcedDY
+                A2[i,:] = acc_profile_final*node.EnforcedDY
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedDY * default_profile
+
+            # Increment i
+            i+=1
+
+        # Support at DY
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+        # Unknown displacement DZ
+        if node.support_DZ==False and node.EnforcedDZ == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement DZ
+        elif node.EnforcedDZ != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'DZ':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedDZ
+                V2[i,:] = vel_profile_final*node.EnforcedDZ
+                A2[i,:] = acc_profile_final*node.EnforcedDZ
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedDZ * default_profile
+
+            # Increment i
+            i+=1
+
+        # Support at DZ
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+        # Unknown displacement RX
+        if node.support_RX==False and node.EnforcedRX == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement RX
+        elif node.EnforcedRX != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'RX':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedRX
+                V2[i,:] = vel_profile_final*node.EnforcedRX
+                A2[i,:] = acc_profile_final*node.EnforcedRX
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedRX * default_profile
+
+            # Increment i
+            i+=1
+
+        # Support at RX
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+        # Unknown displacement RY
+        if node.support_RY==False and node.EnforcedRY == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement RY
+        elif node.EnforcedRY != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'RY':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedRY
+                V2[i,:] = vel_profile_final*node.EnforcedRY
+                A2[i,:] = acc_profile_final*node.EnforcedRY
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedRY * default_profile
+
+            # Increment i
+            i+=1
+
+        # Support at RY
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+
+        # Unknown displacement RZ
+        if node.support_RZ==False and node.EnforcedRZ == None:
+            # In future the function _partition() and this function can be merged. Some of the code from
+            # _partition() can be put here
+            pass
+        # Known displacement RZ
+        elif node.EnforcedRZ != None:
+            if node.name in profile_keys and profile_values[node.name].direction == 'RZ':
+                node_name = node.name
+
+                # Original time and displacement profile array
+                time_array = profile_values[node_name].time
+                displacement_profile = profile_values[node_name].profile
+
+                # To get the velocity and acceleration arrays, we need the arrays to be closely spaced
+                # inorder to carry out proper numerical differentiation
+                # Hence we generate new arrays from the originals by interpolation
+                new_time_array = linspace(min(time_array),max(time_array),10*expanded_time_length)
+                new_disp_profile = interp(new_time_array,time_array,displacement_profile)
+
+                # The velocity profile is found by differentiating the new displacement profile
+                velocity_profile = gradient(new_disp_profile,new_time_array)
+
+                # The acceleration profile is found by differentiating the velocity profile
+                acceleration_profile = gradient(velocity_profile,new_time_array)
+
+                # The final displacement profile for the given time array is then calculated
+                disp_profile_final = interp(expanded_time,time_array,displacement_profile)
+
+                # The velocity and acceleration profiles are also found by interpolating
+                # their respective profiles
+                vel_profile_final = interp(expanded_time, new_time_array, velocity_profile)
+                acc_profile_final = interp(expanded_time, new_time_array, acceleration_profile)
+
+                # The actual values are then calculated and appended
+                D2[i,:] = disp_profile_final*node.EnforcedRZ
+                V2[i,:] = vel_profile_final*node.EnforcedRZ
+                A2[i,:] = acc_profile_final*node.EnforcedRZ
+            else:
+                # If there is no profile defined, then the displacement is constant
+                # Hence the velocity and acceleration are zeros
+                D2[i,:] = node.EnforcedRZ * default_profile
+
+            # Increment i
+            i+=1
+
+        # Support at RZ
+        else:
+            # D2, V2 and A2 are zeros at the supports, which is what we have initialised the matrices to.
+            # Hence, we only need to update our counter
+            i+=1
+
+
+    return D2, V2, A2
+
+
 def _renumber(model):
     """
     Assigns node and element ID numbers to be used internally by the program. Numbers are
     assigned according to the order in which they occur in each dictionary.
     """
-    
+
     # Number each node in the model
     for id, node in enumerate(model.Nodes.values()):
         node.ID = id
@@ -1141,3 +1503,434 @@ def _renumber(model):
     # Number each quadrilateral in the model
     for id, quad in enumerate(model.Quads.values()):
         quad.ID = id
+
+
+def _transient_solver_linear_modal(d0_n, v0_n, F0_n, F_n, step_size, required_duration,
+                                   steps_for_results_recording,
+                                   mass_normalised_eigen_vectors, natural_freq,
+                                   newmark_gamma, newmark_beta,
+                                   taylor_alpha, wilson_theta, damping_options = dict(),
+                                   log = False):
+    """
+        General time history solver using modal superposition.
+
+        :param d0_n: Initial displacement in modal coordinates.
+        :type d0_n: numpy.ndarray
+        :param v0_n: Initial velocity in modal coordinates.
+        :type v0_n: numpy.ndarray
+        :param F0_n: Initial applied forces in modal coordinates
+        :type F0_n: numpy.ndarray
+        :param F_n: Time-varying applied forces in modal coordinates.
+        :type F_n: numpy.ndarray
+        :param step_size: Time step for the analysis.
+        :type step_size: float
+        :param required_duration: Total duration of the analysis.
+        :type required_duration: float
+        :param steps_for_results_recording: An array of steps for which results should be recorded
+        :type steps_for_results_recording: ndarray
+        :param mass_normalised_eigen_vectors: Mass-normalized eigen vectors.
+        :type mass_normalised_eigen_vectors: numpy.ndarray
+        :param natural_freq: Angular frequencies of the modes.
+        :type natural_freq: numpy.ndarray
+        :param newmark_gamma: Newmark gamma parameter for time integration.
+        :type newmark_gamma: float
+        :param newmark_beta: Newmark beta parameter for time integration.
+        :type newmark_beta: float
+        :param taylor_alpha: Taylor alpha parameter for time integration.
+        :type taylor_alpha: float
+        :param wilson_theta: Wilson theta parameter for time integration.
+        :type wilson_theta: float
+        :param damping_options: Dictionary containing damping options (optional).
+            \nAllowed keywords in damping_options:
+            - 'constant_modal_damping' (float): Constant modal damping ratio (default: 0.00).
+            - 'r_alpha' (float): Rayleigh mass proportional damping coefficient.
+            - 'r_beta' (float): Rayleigh stiffness proportional damping coefficient.
+            - 'first_mode_damping' (float): Damping ratio for the first mode.
+            - 'highest_mode_damping' (float): Damping ratio for the highest mode.
+            - 'damping_in_every_mode' (list or tuple): Damping ratio(s) for each mode.
+
+        :type damping_options: dict, optional
+        :param log: If True, print analysis log to the console. Default is False.
+        :type log: bool, optional
+
+        :return: Tuple containing TIME, D (displacement history), V (velocity history),
+          A (acceleration history).
+        :rtype: tuple of numpy.ndarray
+        :raises ValueError: If invalid input is provided.
+        """
+
+    # Initialise the damping options
+    constant_modal_damping = 0.00
+    rayleigh_alpha= None
+    rayleigh_beta = None
+    first_mode_damping_ratio = None
+    highest_mode_damping_ratio = None
+    damping_ratios_in_every_mode = None
+
+    # Get the damping options from the dictionary
+    if 'constant_modal_damping' in damping_options:
+        constant_modal_damping = damping_options['constant_modal_damping']
+    if 'r_alpha' in damping_options:
+        rayleigh_alpha = damping_options['r_alpha']
+
+    if 'r_beta' in damping_options:
+        rayleigh_beta = damping_options['r_beta']
+
+    if 'first_mode_damping' in damping_options:
+        first_mode_damping_ratio = damping_options['first_mode_damping']
+
+    if 'highest_mode_damping' in damping_options:
+        highest_mode_damping_ratio = ['highest_mode_damping']
+
+    if 'damping_in_every_mode' in damping_options:
+        damping_ratios_in_every_mode = damping_options['damping_in_every_mode']
+
+
+    # Shorten variable names
+    w = natural_freq
+    gamma = newmark_gamma
+    beta = newmark_beta
+    alpha = taylor_alpha
+    theta = wilson_theta
+    step = step_size
+
+    # Get size of matrices
+    size = F_n.shape[0]
+
+    # Build the modal stiffness  matrix
+    K_n = w**2
+
+    # Build the modal mass matrix
+    M_n = ones(size)
+
+    # Build the modal damping matrix
+    # Initialise a one dimensional array
+    C_n = zeros(F_n.shape[0])
+    if damping_ratios_in_every_mode != None:
+        # Declare new variable called ratios, easier to work with than the original
+        ratios = damping_ratios_in_every_mode
+        # Check if it is a list or turple
+        if isinstance(ratios, (list, tuple)):
+            # Calculate the modal damping coefficient for each mode
+            # If too many damping ratios have been provided, only the first entries
+            # corresponding to the requested modes will be used
+            # If fewer ratios have been provided, the last ratio will be used for the rest
+            # of the modes
+            for k in range(len(w)):
+                C_n[k] = 2 * w[k] * ratios[min(k, len(ratios) - 1)]
+        else:
+            # The provided input is perhaps a just a number, not a list
+            # That number will be used for all the modes
+            for k in range(len(w)):
+                C_n[k] = 2 * damping_ratios_in_every_mode * w[k]
+    elif rayleigh_alpha != None or rayleigh_beta != None:
+        # At-least one rayleigh damping coefficient has been specified
+        if rayleigh_alpha == None:
+            rayleigh_alpha = 0
+        if rayleigh_beta == None:
+            rayleigh_beta = 0
+        for k in range(len(w)):
+            C_n[k] = rayleigh_alpha + rayleigh_beta * w[k] ** 2
+
+    elif first_mode_damping_ratio != None or highest_mode_damping_ratio != None:
+        # Rayleigh damping is requested and at-least one damping ratio is given
+        # If only one ratio is given, it will be assumed to be the damping
+        # in the lowest and highest modes
+        if first_mode_damping_ratio == None:
+            first_mode_damping_ratio = highest_mode_damping_ratio
+        if highest_mode_damping_ratio == None:
+            highest_mode_damping_ratio = first_mode_damping_ratio
+
+        # Calculate the rayleigh damping coefficients
+        # Create new shorter variables
+        ratio1 = first_mode_damping_ratio
+        ratio2 = highest_mode_damping_ratio
+
+        # Extract the first and last angular frequencies
+        w1 = w[0]  # Angular frequency of first mode
+        w2 = w[-1]  # Angular frequency of last mode
+
+        # Calculate the rayleigh damping coefficients
+        alpha_r = 2 * w1 * w2 * (w2 * ratio1 - w1 * ratio2) / (w2 ** 2 - w1 ** 2)
+        beta_r = 2 * (w2 * ratio2 - w1 * ratio1) / (w2 ** 2 - w1 ** 2)
+
+        # Calculate the modal damping coefficients
+        for k in range(len(w)):
+            C_n[k] = alpha_r + beta_r * w[k] ** 2
+    else:
+        # Use one damping ratio for all modes, default ratio is 0.02 (2%)
+        for k in range(len(w)):
+            C_n[k] = 2 * w[k] * constant_modal_damping
+
+    # Compute the adjusted time step, tau
+    tau = theta * step
+
+    # Calculate the initial acceleration
+    a0_n = F0_n - C_n * v0_n - K_n * d0_n
+
+    # Compute the constant coefficient matrix, CCM
+    CCM = M_n + gamma * tau * C_n + (1+alpha) * beta * tau**2 * K_n
+
+    # Invert the CCM
+    CCM = 1/CCM
+
+    # Calculate the required number of steps
+    total_steps = ceil(required_duration/step) + 1
+
+    # Initialise the matrices to store displacements, velocities and accelerations
+    length_of_results = len(steps_for_results_recording)
+    D_n = zeros((size, length_of_results))
+    V_n = zeros((size, length_of_results))
+    A_n = zeros((size, length_of_results))
+
+    # Store the initial values of displacements, velocities and accelerations
+    D_n[:,0] = d0_n
+    V_n[:,0] = v0_n
+    A_n[:,0] = a0_n
+
+    d_prev = d0_n
+    v_prev = v0_n
+    a_prev = a0_n
+
+    # Index for recording results
+    j = 0
+
+    for i in range(total_steps-1):
+        if log:
+            update_progress(i, total_steps - 2, '- Analysis Progress')
+
+        # Calculate the predictors
+        dp = d_prev + tau * v_prev + tau**2 * (0.5-beta) * a_prev
+        vp = v_prev + tau * (1-gamma) * a_prev
+
+        # Calculate right hand side, RHS
+        RHS = (1 - theta) * F_n[:, i] + theta * F_n[:, i + 1] - C_n * vp - K_n * ((1 + alpha) * dp - alpha * d_prev)
+
+        # Calculate the collocation acceleration
+        A_col = CCM * RHS
+
+        # Compute and save the acceleration, velocity and displacement
+        a_current = a_prev + (1/theta) * (A_col - a_prev)
+        v_current = v_prev + step * (1-gamma) * a_prev + gamma * step * a_current
+        d_current = d_prev + step * v_prev + step**2 * (0.5-beta) * a_prev + beta * step**2 * a_current
+
+        if i + 1 in steps_for_results_recording:
+            j += 1
+            A_n[:, j] = a_current
+            V_n[:, j] = v_current
+            D_n[:, j] = d_current
+
+        a_prev = a_current
+        v_prev = v_current
+        d_prev = d_current
+
+    # Calculate the physical coordinates
+    A = mass_normalised_eigen_vectors @ A_n
+    V = mass_normalised_eigen_vectors @ V_n
+    D = mass_normalised_eigen_vectors @ D_n
+    import numpy
+    print(numpy.linalg.norm(D))
+    return D, V, A
+
+
+def _transient_solver_linear_direct(K, M, d0, v0, F0, F,
+                                    step_size, required_duration,
+                                    steps_for_results_recording,
+                                    newmark_gamma, newmark_beta,
+                                    taylor_alpha, wilson_theta,
+                                    rayleigh_alpha = 0, rayleigh_beta = 0,
+
+                                    sparse=True, log = False):
+    """
+       General direct linear time history solver.
+
+       :param K: Stiffness matrix.
+       :type K: numpy.ndarray or scipy.sparse.csr_matrix
+       :param M: Mass matrix.
+       :type M: numpy.ndarray or scipy.sparse.csr_matrix
+       :param d0: Initial displacement.
+       :type d0: numpy.ndarray
+       :param v0: Initial velocity.
+       :type v0: numpy.ndarray
+       :param F0: Initial applied force.
+       :type F0: numpy.ndarray
+       :param F: Time-varying applied force.
+       :type F: numpy.ndarray
+       :param step_size: Time step for the analysis.
+       :type step_size: float
+       :param required_duration: Total duration of the analysis.
+       :type required_duration: float
+       :param newmark_gamma: Newmark gamma parameter for time integration.
+       :type newmark_gamma: float
+       :param newmark_beta: Newmark beta parameter for time integration.
+       :type newmark_beta: float
+       :param taylor_alpha: Taylor alpha parameter for time integration.
+       :type taylor_alpha: float
+       :param wilson_theta: Wilson theta parameter for time integration.
+       :type wilson_theta: float
+       :param rayleigh_alpha: Rayleigh mass proportional damping coefficient (alpha) (default: 0).
+       :type rayleigh_alpha: float
+       :param rayleigh_beta: Rayleigh stiffness proportional damping coefficient (beta) (default: 0).
+       :type rayleigh_beta: float
+       :param steps_for_results_recording: An array of steps for which results should be recorded
+       :type steps_for_results_recording: ndarray
+       :param sparse: Indicates whether matrices are sparse (default: True).
+       :type sparse: bool
+       :param log: If True, print analysis log to the console. Default is False.
+       :type log: bool, optional
+
+       :return: Tuple containing TIME, D (displacement history), V (velocity history),
+          A (acceleration history).
+       :rtype: tuple of numpy.ndarray
+       :raises ValueError: If invalid input is provided.
+       """
+
+    # Shorten some variable names
+    step = step_size
+    gamma = newmark_gamma
+    beta = newmark_beta
+    alpha = taylor_alpha
+    theta = wilson_theta
+
+    # Import sparse solver if matrices are sparse
+    if sparse == True:
+        M = M.tocsc()
+        K = K.tocsc()
+
+    # Get size of matrices
+    size = F.shape[0]
+
+    # Build the damping matrix
+    C = rayleigh_alpha * M + rayleigh_beta * K
+
+    # Compute the adjusted time step, tau
+    tau = theta * step
+
+    # Calculate the initial acceleration
+    if sparse:
+        from scipy.sparse.linalg import spsolve, splu
+        a0 = spsolve(M, F0 - C @ v0 - K @ d0)
+    else:
+        a0 = solve(M, F0 - C @ v0 - K @ d0)
+
+    # Compute the constant coefficient matrix, CCM
+    CCM = M + gamma * tau * C + (1+alpha) * beta * tau**2 * K
+
+    # Decompose the constant coefficient matrix
+    lu_sparse_CCM = None
+    #lu_CCM, lu_piv_CCM = None, None
+    if sparse:
+        lu_sparse_CCM = splu (CCM.tocsc(),permc_spec="MMD_ATA")
+    else:
+        #lu_CCM, lu_piv_CCM = lu_factor (CCM, overwrite_a=True)
+        from numpy.linalg import qr
+        Q_CCM, R_CCM = qr(CCM)
+
+
+    # Calculate the required number of steps
+    total_steps = ceil(required_duration/step) + 1
+
+    # Initialise the matrices to store displacements, velocities and accelerations
+    length_of_results = len(steps_for_results_recording)
+    D = zeros((size, length_of_results))
+    V = zeros((size, length_of_results))
+    A = zeros((size, length_of_results))
+
+    # Store the initial values of displacements, velocities and accelerations
+    D[:,0] = d0
+    V[:,0] = v0
+    A[:,0] = a0
+
+    d_prev = d0
+    v_prev = v0
+    a_prev = a0
+
+    # Index for recording results
+    j = 0
+
+    if sparse:
+        for i in range(total_steps-1):
+            if log:
+                update_progress(i,total_steps-2,'- Analysis Progress')
+
+            # Calculate the predictors
+            dp = d_prev + tau * v_prev + tau ** 2 * (0.5 - beta) * a_prev
+            vp = v_prev + tau * (1 - gamma) * a_prev
+
+            # Calculate right hand side, RHS
+            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * d_prev)
+
+            # Calculate the collocation acceleration
+            A_col = lu_sparse_CCM.solve(RHS)
+
+            # Compute and save the acceleration, velocity and displacement
+            a_current = a_prev + (1 / theta) * (A_col - a_prev)
+            v_current = v_prev + step * (1 - gamma) * a_prev + gamma * step * a_current
+            d_current = d_prev + step * v_prev + step ** 2 * (0.5 - beta) * a_prev + beta * step ** 2 * a_current
+
+            if i+1 in steps_for_results_recording:
+                j+=1
+                A[:,j] = a_current
+                V[:,j] = v_current
+                D[:,j] = d_current
+
+            a_prev = a_current
+            v_prev = v_current
+            d_prev = d_current
+
+    else:
+
+        for i in range(total_steps-1):
+            if log:
+                update_progress(i,total_steps-2,'- Analysis Progress')
+
+            # Calculate the predictors
+            dp = d_prev + tau * v_prev + tau ** 2 * (0.5 - beta) * a_prev
+            vp = v_prev + tau * (1 - gamma) * a_prev
+
+            # Calculate right hand side, RHS
+            RHS = (1 - theta) * F[:, i] + theta * F[:, i + 1] - C @ vp - K @ ((1 + alpha) * dp - alpha * d_prev)
+
+            # Calculate the collocation acceleration
+            #A_col = lu_solve( (lu_CCM, lu_piv_CCM) ,b = RHS , overwrite_b = True)
+            A_col = backward_solve(R_CCM, Q_CCM.T @ RHS)
+
+            # Compute and save the acceleration, velocity and displacement
+            a_current = a_prev + (1 / theta) * (A_col - a_prev)
+            v_current = v_prev + step * (1 - gamma) * a_prev + gamma * step * a_current
+            d_current = d_prev + step * v_prev + step ** 2 * (0.5 - beta) * a_prev + beta * step ** 2 * a_current
+
+            if i+1 in steps_for_results_recording:
+                j+=1
+                A[:,j] = a_current
+                V[:,j] = v_current
+                D[:,j] = d_current
+
+            a_prev = a_current
+            v_prev = v_current
+            d_prev = d_current
+
+    return D, V, A
+
+def update_progress(step, total, process_name):
+    progress = int(100 * step / total)
+    bar_length = 50
+    progress_bar = '=' * int(bar_length * progress / 100)
+    sys.stdout.write(f'\r{process_name}: [{progress_bar: <{bar_length}}] {progress:3}%')
+    sys.stdout.flush()
+
+
+def backward_solve(U, b):
+    """x = back_sub(U, b) is the solution to U x = b
+       U must be an upper-triangular matrix
+       b must be a vector of the same leading dimension as U
+    """
+    n = U.shape[0]
+    x = zeros(n)
+    for i in range(n-1, -1, -1):
+        tmp = b[i]
+        for j in range(i+1, n):
+            tmp -= U[i,j] * x[j]
+        x[i] = tmp / U[i,i]
+    return x
+
