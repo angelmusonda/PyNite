@@ -3761,8 +3761,8 @@ class FEModel3D():
 
         # Get the partitioned matrices
         if sparse == True:
-            K_total = self.K(combo_name, log, False, sparse).tolil()
-            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tolil()
+            K_total = self.K(combo_name, log, False, sparse).tocsr()
+            M_total = self.M(combo_name, log, False, sparse,type_of_mass_matrix).tocsr()
             K11, K12, K21, K22 = Analysis._partition(self, K_total, D1_indices,D2_indices)
             M11, M12, M21, M22 = Analysis._partition(self, M_total, D1_indices, D2_indices)
 
