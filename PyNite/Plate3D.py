@@ -1,5 +1,7 @@
 from numpy import zeros, array, matmul, cross, add
 from numpy.linalg import inv, norm, det
+from numpy import diag
+from math import atan2
 
 #%%
 class Plate3D():
@@ -45,6 +47,7 @@ class Plate3D():
         self.n_node = n_node
 
         self.t = t
+
         
         self.kx_mod = kx_mod
         self.ky_mod = ky_mod
@@ -58,6 +61,8 @@ class Plate3D():
         try:
             self.E = self.model.Materials[material_name].E
             self.nu = self.model.Materials[material_name].nu
+            self.rho = self.model.Materials[material].rho
+
         except:
             raise KeyError('Please define the material ' + str(material_name) + ' before assigning it to plates.')
     
@@ -300,6 +305,224 @@ class Plate3D():
         # Return the local stiffness matrix
         return k_exp
 
+#%%
+    def H_m(self, r, s):
+        """
+        Returns the shape (interpolation) function for a plane stress quad element
+        """
+        H1 = 0.25*(1+r)*(1+s)
+        H2 = 0.25*(1-r)*(1+s)
+        H3 = 0.25*(1-r)*(1-s)
+        H4 = 0.25*(1+r)*(1-s)
+        return array([[H1,  0, H2,  0, H3,  0, H4, 0],
+                     [ 0, H1,  0, H2,  0, H3,  0, H4]])
+
+#%%
+    def m_m(self):
+        """
+        Returns the local mass matrix for membrane action
+        """
+        #Ref: S.S.Quek (2003) The Finite Element Method, A Practical Course - Page 152
+
+        t = self.t
+
+        # Define the gauss point for numerical integration
+        gp = 1 / 3 ** 0.5
+
+        # Get the membrane shape function for each gauss point
+        H1 = self.H_m(gp, gp)
+        H2 = self.H_m(-gp, gp)
+        H3 = self.H_m(-gp, -gp)
+        H4 = self.H_m(gp, -gp)
+
+        # Get the jacobian at each gauss point
+        det_J1 = det(self.J(gp, gp))
+        det_J2 = det(self.J(-gp, gp))
+        det_J3 = det(self.J(-gp, -gp))
+        det_J4 = det(self.J(gp, -gp))
+
+        # Calculate the 8 by 8 matrix corresponding to 2 degrees of freedom at each node
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
+        t = self.t
+
+        mass_matrix = rho * t * (matmul(H1.T, H1)*det_J1 +
+                                 matmul(H2.T, H2)*det_J2 +
+                                 matmul(H3.T, H3)*det_J3 +
+                                 matmul(H4.T, H4)*det_J4)
+
+        # We need to put this in a 24 by 24 matrix since thats the final size we want
+        m_exp = zeros((24,24))
+
+
+        # Step through each term in the unexpanded mass matrix
+        # i = Unexpanded matrix row
+        for i in range(8):
+
+            # j = Unexpanded matrix column
+            for j in range(8):
+
+                # Find the corresponding term in the expanded mass
+                # matrix
+
+                # m = Expanded matrix row
+                if i in [0, 2, 4, 6]:  # indices associated with displacement in x
+                    m = i * 3
+                if i in [1, 3, 5, 7]:  # indices associated with displacement in y
+                    m = i * 3 - 2
+
+                # n = Expanded matrix column
+                if j in [0, 2, 4, 6]:  # indices associated with displacement in x
+                    n = j * 3
+                if j in [1, 3, 5, 7]:  # indices associated with displacement in y
+                    n = j * 3 - 2
+
+                # Ensure the indices are integers rather than floats
+                m, n = round(m), round(n)
+
+                # Add the term from the unexpanded matrix into the expanded matrix
+                m_exp[m, n] = mass_matrix[i, j]
+
+        return m_exp
+
+#%%
+    def H_b(self, r, s):
+        """
+        Returns the shape function for plate bending element
+        """
+        # Shape functions
+        H1 = 0.25*(1+r)*(1+s)
+        H2 = 0.25*(1-r)*(1+s)
+        H3 = 0.25*(1-r)*(1-s)
+        H4 = 0.25*(1+r)*(1-s)
+        return array([[H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0,  0],
+                     [ 0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4,  0],
+                     [ 0,  0, H1,  0,  0, H2,  0,  0, H3,  0,  0, H4]])
+
+#%%
+    def m_b(self):
+        """
+        Returns the element mass matrix for bending action
+        """
+        #Ref: S.S.Quek (2003) The Finite Element Method, A Practical Course - Page 178
+
+        t = self.t
+
+        # Define the gauss point for numerical integration
+        gp = 1 / 3 ** 0.5
+
+        # Get the membrane shape function for each gauss point
+        H1 = self.H_b(gp, gp)
+        H2 = self.H_b(-gp, gp)
+        H3 = self.H_b(-gp, -gp)
+        H4 = self.H_b(gp, -gp)
+
+        # Get the jacobian at each gauss point
+        det_J1 = det(self.J(gp, gp))
+        det_J2 = det(self.J(-gp, gp))
+        det_J3 = det(self.J(-gp, -gp))
+        det_J4 = det(self.J(gp, -gp))
+
+        # Calculate the 12 by 12 matrix corresponding to 3 degrees of freedom at each node
+        #rho = self.rho
+        rho = self.rho_increased(self.rho)
+        t = self.t
+
+        I = array([[t,    0,       0      ],
+                   [0,    t**3/12, 0      ],
+                   [0,    0,       t**3/12]])
+
+        mass_matrix = rho * (matmul(H1.T, matmul(I, H1)) * det_J1 +
+                             matmul(H2.T, matmul(I, H2)) * det_J2 +
+                             matmul(H3.T, matmul(I, H3)) * det_J3 +
+                             matmul(H4.T, matmul(I, H4)) * det_J4)
+
+        # We need to put this in a 24 by 24 matrix since thats the final size we want
+        m_exp = zeros((24, 24))
+
+        m_rz = min(abs(mass_matrix[1, 1]), abs(mass_matrix[2, 2]),
+                   abs(mass_matrix[4, 4]), abs(mass_matrix[5, 5]),
+                   abs(mass_matrix[7, 7]), abs(mass_matrix[8, 8]),
+                   abs(mass_matrix[10, 10]), abs(mass_matrix[11, 11])
+                   )/1000
+
+        # Step through each term in the unexpanded mass matrix
+        # i = Unexpanded matrix row
+        for i in range(12):
+
+            # j = Unexpanded matrix column
+            for j in range(12):
+
+                # Find the corresponding term in the expanded mass
+                # matrix
+
+                # m = Expanded matrix row
+                if i in [0, 3, 6, 9]:  # indices associated with deflection in z
+                    m = 2 * i + 2
+                if i in [1, 4, 7, 10]:  # indices associated with rotation about x
+                    m = 2 * i + 1
+                if i in [2, 5, 8, 11]:  # indices associated with rotation about y
+                    m = 2 * i
+
+                # n = Expanded matrix column
+                if j in [0, 3, 6, 9]:  # indices associated with deflection in z
+                    n = 2 * j + 2
+                if j in [1, 4, 7, 10]:  # indices associated with rotation about x
+                    n = 2 * j + 1
+                if j in [2, 5, 8, 11]:  # indices associated with rotation about y
+                    n = 2 * j
+
+                # Ensure the indices are integers rather than floats
+                m, n = round(m), round(n)
+
+                # Add the term from the unexpanded matrix into the expanded
+                # matrix
+                m_exp[m, n] = mass_matrix[i, j]
+
+        m_exp[5, 5] = m_rz
+        m_exp[11, 11] = m_rz
+        m_exp[17, 17] = m_rz
+        m_exp[23, 23] = m_rz
+
+        return m_exp
+
+#%%
+    def m(self):
+        '''
+        Returns the quad element's local mass matrix.
+        '''
+
+
+        # Sum the bending and membrane stiffness matrices
+        return add(self.m_b(), self.m_m())
+
+
+#%%
+    def rho_increased(self, rho):
+        """
+        Accounts for load cases selected as mass cases by increasing the density. All force mass cases are distributed
+        evenly on the plate surface
+
+        :param rho: The actual material density
+        :type rho: float
+        """
+
+        # Initialise variables to sum all loads
+        total_pressure_mass = 0
+
+        # Iterate through each item in the dictionary of mass cases
+        for case in self.model.MassCases.keys():
+            gravity = self.model.MassCases[case].gravity
+            factor = self.model.MassCases[case].factor
+            # Iterate through each item in the list of point load cases
+            for pressure_case in self.pressures:
+                if case == pressure_case[1]:
+                    # We are not multiplying the pressure by the quad area, this is because the step
+                    # right after requires division by area, hence the two cancel
+                    total_pressure_mass += factor * abs(pressure_case[0]) / gravity
+
+        return rho + total_pressure_mass / self.t
+
     def f(self, combo_name='Combo 1'):
         """
         Returns the plate's local end force vector
@@ -493,6 +716,68 @@ class Plate3D():
 
         # Calculate and return the stiffness matrix in global coordinates
         return matmul(matmul(inv(self.T()), self.k()), self.T())
+
+    def M(self):
+        '''
+        Returns the quad element's global mass matrix
+        '''
+
+        # Get the transformation matrix
+        T = self.T()
+
+        # Calculate and return the stiffness matrix in global coordinates
+        return matmul(matmul(inv(T), self.m()), T)
+
+    def M_HRZ(self):
+        '''
+        Returns the quad element's global hrz lumped mass matrix
+        HRZ lumping scheme is described in the reference below
+        Hinton, E., Rock, T., & Zienkiewicz, O. C. (1976). A note on mass lumping and related processes in the finite element method. Earthquake Engineering & Structural Dynamics, 4(3). https://doi.org/10.1002/eqe.4290040305
+        '''
+
+        # Calculate the elements coordinates
+
+
+        # Get the element total mass
+
+        e_mass = self.t * self.height()* self.width() * self.rho_increased(self.rho)
+
+        # Get the consistent mass matrix
+        cmm = self.m()
+
+        # Initialise the lumped mass matrix, it should have the same entries on the diagonal as the
+        # consistent mass matrix and zeros everywhere
+        lmm = diag(diag(cmm))
+
+        # Sum the translational masses in the x direction
+        mass_sum_x = cmm[0,0]+cmm[6,6]+cmm[12,12] + cmm[18,18]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the x - direction dof
+        for n in [0, 6, 12, 18]:
+            lmm[n,n] = lmm[n,n] * e_mass/mass_sum_x
+
+        # Sum the translational masses in the x direction
+        mass_sum_y = cmm[1, 1] + cmm[7, 7] + cmm[13, 13] + cmm[19, 19]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the y - direction dof
+        for n in [1, 7, 13, 19]:
+            lmm[n, n] = lmm[n, n] * e_mass / mass_sum_y
+
+        # Sum the translational masses in the z direction
+        mass_sum_z = cmm[2, 2] + cmm[8, 8] + cmm[14, 14] + cmm[20, 20]
+
+        # Scale the diagonal entries in the lumped mass matrix corresponding to the z - direction dof
+        # Scale the rotational dof as well (those corresponding to RX and RY)
+        for n in [2, 3, 4, 8, 9, 10, 14, 15, 16, 21, 22, 20]:
+            lmm[n, n] = lmm[n, n] * e_mass / mass_sum_z
+
+        # Get the transformation matrix
+        T = self.T()
+
+        # Calculate and return the lumped mass matrix in global coordinates
+        return matmul(matmul(inv(T), lmm), T)
+
+
 
     def FER(self, combo_name='Combo 1'):
         """
