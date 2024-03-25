@@ -6,7 +6,7 @@ from math import atan2
 #%%
 class Plate3D():
 
-    def __init__(self, name, i_node, j_node, m_node, n_node, t, material, model, kx_mod=1.0,
+    def __init__(self, name, i_node, j_node, m_node, n_node, t, material_name, model, kx_mod=1.0,
                  ky_mod=1.0):
         """
         A rectangular plate element
@@ -25,7 +25,7 @@ class Plate3D():
             The plate's n-node
         t : number
             Plate thickness
-        material : string
+        material_name : string
             The name of the plate material
         kx_mod : number
             Modification factor for stiffness in the plate's local x-direction. Default value is
@@ -59,11 +59,12 @@ class Plate3D():
 
         # Get material properties for the plate from the model
         try:
-            self.E = self.model.Materials[material].E
-            self.nu = self.model.Materials[material].nu
+            self.E = self.model.Materials[material_name].E
+            self.nu = self.model.Materials[material_name].nu
             self.rho = self.model.Materials[material].rho
+
         except:
-            raise KeyError('Please define the material ' + str(material) + ' before assigning it to plates.')
+            raise KeyError('Please define the material ' + str(material_name) + ' before assigning it to plates.')
     
     def width(self):
         """

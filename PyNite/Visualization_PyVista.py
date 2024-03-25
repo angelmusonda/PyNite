@@ -3,8 +3,7 @@ from json import load
 import warnings
 
 from IPython.display import Image
-from numpy import array, empty, append, cross, zeros
-from numpy.linalg import norm
+import numpy as np
 import pyvista as pv
 
 class Renderer:
@@ -37,6 +36,10 @@ class Renderer:
         # self.plotter.view_isometric()
         self.plotter.view_xy()
         self.plotter.show_axes()
+
+        # Initialize load labels
+        self._load_label_points = []
+        self._load_labels = []
 
     @property
     def window_width(self):
@@ -211,6 +214,10 @@ class Renderer:
 
         # Clear out the old plot (if any)
         self.plotter.clear()
+
+        # Clear out internally stored load labels (if any)
+        self._load_label_points = []
+        self._load_labels = []
         
         # Check if nodes are to be rendered
         if self.render_nodes == True:
@@ -233,15 +240,9 @@ class Renderer:
         labels = [node.name for node in self.model.Nodes.values()]
         self.plotter.add_point_labels(label_points, labels, italic=False, bold=False, font_size=24, text_color='grey', font_family=None, shadow=False, show_points=True, point_color=None, point_size=None, name=None, shape_color=None, shape=None, fill_shape=True, margin=3, shape_opacity=1.0, pickable=False, render_points_as_spheres=True, tolerance=0.001, reset_camera=None, always_visible=False, render=True)
 
-        # Create a visual spring for each spring in the model
-        # vis_springs = []
-        # for spring in self.model.Springs.values():
-        #     vis_springs.append(VisSpring(spring, self.model.Nodes, self.annotation_size))    
-    
-        # Create a visual member for each member in the model
-        # vis_members = []
-        # for member in self.model.Members.values():
-        #     vis_members.append(VisMember(member, self.model.Nodes, self.annotation_size, self.theme))
+        # Render the springs
+        for spring in self.model.Springs.values():
+            self.plot_spring(spring, self.annotation_size, 'grey')  
         
         for member in self.model.Members.values():
             self.plot_member(member)
@@ -250,28 +251,6 @@ class Renderer:
         label_points = [[(member.i_node.X+member.j_node.X)/2, (member.i_node.Y+member.j_node.Y)/2, (member.i_node.Z+member.j_node.Z)/2] for member in self.model.Members.values()]
         labels = [member.name for member in self.model.Members.values()]
         self.plotter.add_point_labels(label_points, labels, italic=False, bold=False, font_size=24, text_color='grey', font_family=None, shadow=False, show_points=False, point_color=None, point_size=None, name=None, shape_color=None, shape=None, fill_shape=True, margin=3, shape_opacity=1.0, pickable=False, render_points_as_spheres=True, tolerance=0.001, reset_camera=None, always_visible=False, render=True)
-
-        # Add actors for each spring
-        # for vis_spring in vis_springs:
-        
-        #     # Add the spring
-        #     self.plotter.add_mesh(vis_spring.mesh)
-
-        #     if self.labels == True:
-
-        #         # Add the actor for the spring label
-        #         self.plotter.add_mesh(vis_spring.text_mesh)  
-
-        # Add actors for each member
-        # for vis_member in vis_members:
-            
-        #     # Add the actor for the member
-        #     self.plotter.add_mesh(vis_member.mesh)
-
-        #     if self.labels == True:
-                
-        #         # Add the actor for the member label
-        #         self.plotter.add_mesh(vis_member.text_mesh)
 
         # Render the deformed shape if requested
         if self.deformed_shape == True:
@@ -283,6 +262,10 @@ class Renderer:
             # Render deformed members
             for member in self.model.Members.values():
                 self.plot_deformed_member(member, self.deformed_scale)
+            
+            # Render deformed springs
+            for spring in self.model.Springs.values():
+                self.plot_deformed_spring(spring, self.deformed_scale, self.combo_name)
 
             # _DeformedShape(self.model, self.deformed_scale, self.annotation_size, self.combo_name, self.render_nodes, self.theme)
 
@@ -293,12 +276,6 @@ class Renderer:
         # Render the plates and quads, if present
         if self.model.Quads or self.model.Plates:
             self.plot_plates(self.deformed_shape, self.deformed_scale, self.color_map, self.scalar_bar, self.scalar_bar_text_size, self.combo_name, self.theme)
-
-        # Set the window's background color
-        # if self.theme == 'default':
-        #     renderer.SetBackground(0, 0, 128)  # Blue
-        # elif self.theme == 'print':
-        #     renderer.SetBackground(255, 255, 255)  # White
             
         # Reset the camera if requested by the user
         if reset_camera:
@@ -464,7 +441,7 @@ class Renderer:
     def plot_spring(self, spring, size, color='grey'):
         
         # Create points for the line source
-        points = zeros((2, 3))  # 2 points in 3D
+        points = np.zeros((2, 3))  # 2 points in 3D
         line = pv.Line(points)
 
         # Step through each node in the model and find the position of the i-node and j-node
@@ -486,11 +463,11 @@ class Renderer:
 
         # Add some color
         if color is None:
-            actor.point_data["color"] = array([255, 0, 255])  # Magenta
-            lblActor.point_data["color"] = array([255, 0, 255])
+            actor.point_data["color"] = np.array([255, 0, 255])  # Magenta
+            lblActor.point_data["color"] = np.array([255, 0, 255])
         elif color == 'black':
-            actor.point_data["color"] = array([0, 0, 0])  # Black
-            lblActor.point_data["color"] = array([0, 0, 0])
+            actor.point_data["color"] = np.array([0, 0, 0])  # Black
+            lblActor.point_data["color"] = np.array([0, 0, 0])
 
         # Plot the actors
         plotter = pv.Plotter()
@@ -564,8 +541,8 @@ class Renderer:
             i+=1
 
         # Add the vertices and the faces to our lists
-        plate_vertices = array(plate_vertices)
-        plate_faces = array(plate_faces)
+        plate_vertices = np.array(plate_vertices)
+        plate_faces = np.array(plate_faces)
 
         # Create a new PyVista dataset to store plate data
         plate_polydata = pv.PolyData(plate_vertices, plate_faces)
@@ -574,7 +551,7 @@ class Renderer:
         if color_map:
             
             plate_polydata = plate_polydata.separate_cells()
-            plate_polydata['Contours'] = array(plate_results)
+            plate_polydata['Contours'] = np.array(plate_results)
             
             # Add the scalar bar for the contours
             if scalar_bar:
@@ -605,9 +582,9 @@ class Renderer:
             L = member.L() # Member length
             T = member.T() # Member local transformation matrix
         
-            cos_x = array([T[0, 0:3]]) # Direction cosines of local x-axis
-            cos_y = array([T[1, 0:3]]) # Direction cosines of local y-axis
-            cos_z = array([T[2, 0:3]]) # Direction cosines of local z-axis
+            cos_x = np.array([T[0, 0:3]]) # Direction cosines of local x-axis
+            cos_y = np.array([T[1, 0:3]]) # Direction cosines of local y-axis
+            cos_z = np.array([T[2, 0:3]]) # Direction cosines of local z-axis
 
             # Find the initial position of the local i-node
             Xi = member.i_node.X
@@ -615,34 +592,34 @@ class Renderer:
             Zi = member.i_node.Z
         
             # Calculate the local y-axis displacements at 20 points along the member's length
-            DY_plot = empty((0, 3))
+            DY_plot = np.empty((0, 3))
             for i in range(20):
                     
                 # Calculate the local y-direction displacement
                 dy_tot = member.deflection('dy', L / 19 * i, self.combo_name)
             
                 # Calculate the scaled displacement in global coordinates
-                DY_plot = append(DY_plot, dy_tot * cos_y * scale_factor, axis=0)
+                DY_plot = np.append(DY_plot, dy_tot * cos_y * scale_factor, axis=0)
         
             # Calculate the local z-axis displacements at 20 points along the member's length
-            DZ_plot = empty((0, 3)) 
+            DZ_plot = np.empty((0, 3)) 
             for i in range(20):
                     
                 # Calculate the local z-direction displacement
                 dz_tot = member.deflection('dz', L / 19 * i, self.combo_name)
             
                 # Calculate the scaled displacement in global coordinates
-                DZ_plot = append(DZ_plot, dz_tot * cos_z * scale_factor, axis=0)
+                DZ_plot = np.append(DZ_plot, dz_tot * cos_z * scale_factor, axis=0)
         
             # Calculate the local x-axis displacements at 20 points along the member's length
-            DX_plot = empty((0, 3)) 
+            DX_plot = np.empty((0, 3)) 
             for i in range(20):
                     
                 # Displacements in local coordinates
                 dx_tot = [[Xi, Yi, Zi]] + (L / 19 * i + member.deflection('dx', L / 19 * i, self.combo_name) * scale_factor) * cos_x
                     
                 # Magnified displacements in global coordinates
-                DX_plot = append(DX_plot, dx_tot, axis=0)
+                DX_plot = np.append(DX_plot, dx_tot, axis=0)
             
             # Sum the component displacements to obtain overall displacement
             D_plot = DY_plot + DZ_plot + DX_plot
@@ -651,126 +628,132 @@ class Renderer:
             for i in range(len(D_plot)-1):
                 line = pv.Line(D_plot[i], D_plot[i+1])
                 self.plotter.add_mesh(line, color='red', line_width=2)
-                                  
-# class VisDeformedSpring():
     
-#     def __init__(self, spring, nodes, scale_factor, combo_name='Combo 1'):
+    def plot_deformed_spring(self, spring, scale_factor, combo_name='Combo 1'):
 
-#         # Determine if this spring is active for each load combination
-#         self.active = spring.active
+        # Determine if the spring is active for the load combination
+        if spring.active[combo_name]:
         
-#         # Generate a line source for the spring
-#         self.source = vtk.vtkLineSource()
+            # Generate points for the deformed spring
+            points = []
+
+            # Get the spring's i-node and j-node
+            i_node = spring.i_node
+            j_node = spring.j_node
+            
+            Xi = i_node.X + i_node.DX[combo_name]*scale_factor
+            Yi = i_node.Y + i_node.DY[combo_name]*scale_factor
+            Zi = i_node.Z + i_node.DZ[combo_name]*scale_factor
+            points.append([Xi, Yi, Zi])
+            
+            Xj = j_node.X + j_node.DX[combo_name]*scale_factor
+            Yj = j_node.Y + j_node.DY[combo_name]*scale_factor
+            Zj = j_node.Z + j_node.DZ[combo_name]*scale_factor
+            points.append([Xj, Yj, Zj])
+            
+            # Create a PyVista Line object from the points
+            self.spring_mesh = pv.Line(points)
+
+    def plot_pt_load(self, position, direction, length, label_text=None, color=None):
+
+        # Create a unit vector in the direction of the 'direction' vector
+        unitVector = direction / np.linalg.norm(direction)
         
-#         # Find the deformed position of the local i-node
-#         # Step through each node
-#         for node in nodes.values():
-      
-#             # Check to see if the current node is the i-node
-#             if node.name == spring.i_node.name:
-#                 Xi = node.X + node.DX[combo_name]*scale_factor
-#                 Yi = node.Y + node.DY[combo_name]*scale_factor
-#                 Zi = node.Z + node.DZ[combo_name]*scale_factor
-#                 self.source.SetPoint1(Xi, Yi, Zi)
+        # Determine if the load is positive or negative
+        if length == 0:
+            sign = 1
+        else:
+            sign = abs(length)/length
+
+        # Generate the tip of the load arrow
+        tip_length = abs(length) / 4
+        radius = abs(length) / 16
+        tip = pv.Cone(center=(position[0] - tip_length*sign*unitVector[0]/2,
+                              position[1] - tip_length*sign*unitVector[1]/2,
+                              position[2] - tip_length*sign*unitVector[2]/2),
+                              direction=(direction[0]*sign, direction[1]*sign, direction[2]*sign),
+                              height=tip_length,
+                              radius=radius)
+
+        # Create a polydata object to store the tip
+        polydata = pv.PolyData(tip)
+
+        # Create the shaft (you'll need to specify the second point)
+        X_tail = position[0] - unitVector[0]*length
+        Y_tail = position[1] - unitVector[1]*length
+        Z_tail = position[2] - unitVector[2]*length
+        shaft = pv.Line(pointa=position, pointb=(X_tail, Y_tail, Z_tail))
         
-#             # Check to see if the current node is the i-node
-#             if node.name == spring.j_node.name:
-#                 Xj = node.X + node.DX[combo_name]*scale_factor
-#                 Yj = node.Y + node.DY[combo_name]*scale_factor
-#                 Zj = node.Z + node.DZ[combo_name]*scale_factor
-#                 self.source.SetPoint2(Xj, Yj, Zj)
+        # Save the data necessary to create the load's label
+        if label_text is not None:
+            self._load_labels.append(label_text)
+            self._load_label_points.append([X_tail, Y_tail, Z_tail])
         
-#         self.source.Update()
-    
-# class VisPtLoad():
-#     '''
-#     Creates a point load for the viewer
-#     '''
-    
-#     def __init__(self, position, direction, length, label_text=None, annotation_size=5, color=None):
-#         '''
-#         Constructor.
-      
-#         Parameters
-#         ----------
-#         position : tuple
-#           A tuple of X, Y and Z coordinates for the point of the load arrow: (X, Y, Z).
-#         direction : tuple
-#           A tuple indicating the direction vector for the load arrow: (i, j, k).
-#         length : number
-#           The length of the load arrow.
-#         tip_length : number
-#           The height of the arrow head.
-#         label_text : string
-#           Text that will show up at the tail of the arrow. If set to 'None' no text will be displayed.
-#         '''
-      
-#         # Create a unit vector in the direction of the 'direction' vector
-#         unitVector = direction/norm(direction)
-      
-#         # Create a 'vtkAppendPolyData' filter to append the tip and shaft together into a single dataset
-#         self.polydata = vtk.vtkAppendPolyData()
-      
-#         # Determine if the load is positive or negative
-#         if length == 0:
-#             sign = 1
-#         else:
-#             sign = abs(length)/length
-      
-#         # Generate the tip of the load arrow
-#         tip_length = abs(length)/4
-#         radius = abs(length)/16
-#         tip = vtk.vtkConeSource()
-#         tip.SetCenter(position[0] - tip_length*sign*0.5*unitVector[0], \
-#                       position[1] - tip_length*sign*0.5*unitVector[1], \
-#                       position[2] - tip_length*sign*0.5*unitVector[2])
-#         tip.SetDirection([direction[0]*sign, direction[1]*sign, direction[2]*sign])
-#         tip.SetHeight(tip_length)
-#         tip.SetRadius(radius)
-#         tip.Update()
-      
-#         # Add the arrow tip to the append filter
-#         self.polydata.AddInputData(tip.GetOutput())
+        # Add the shaft to the polydata object
+        polydata += shaft
         
-#         # Create the shaft
-#         shaft = vtk.vtkLineSource()
-#         shaft.SetPoint1(position)
-#         shaft.SetPoint2((position[0]-length*unitVector[0], position[1]-length*unitVector[1], position[2]-length*unitVector[2]))
-#         shaft.Update()
-      
-#         # Copy and append the shaft data to the append filter
-#         self.polydata.AddInputData(shaft.GetOutput())
-#         self.polydata.Update()
-      
-#         # Create a mapper and actor
-#         mapper = vtk.vtkPolyDataMapper()
-#         mapper.SetInputConnection(self.polydata.GetOutputPort())
-#         self.actor = vtk.vtkActor()
-#         if color is None: self.actor.GetProperty().SetColor(0, 255, 0) # Green
-#         elif color == 'black': self.actor.GetProperty().SetColor(0, 0, 0)  # Black
-#         self.actor.SetMapper(mapper)
-      
-#         # Create the label if needed
-#         if label_text != None:
-      
-#             # Create the label and set its text
-#             self.label = vtk.vtkVectorText()
-#             self.label.SetText(label_text)
-        
-#             # Set up a mapper for the label
-#             lblMapper = vtk.vtkPolyDataMapper()
-#             lblMapper.SetInputConnection(self.label.GetOutputPort())
-        
-#             # Set up an actor for the label
-#             self.lblActor = vtk.vtkFollower()
-#             self.lblActor.SetMapper(lblMapper)
-#             self.lblActor.SetScale(annotation_size, annotation_size, annotation_size)
-#             self.lblActor.SetPosition(position[0] - (length - 0.6*annotation_size)*unitVector[0], \
-#                                       position[1] - (length - 0.6*annotation_size)*unitVector[1], \
-#                                       position[2] - (length - 0.6*annotation_size)*unitVector[2])
-#             if color is None: self.lblActor.GetProperty().SetColor(0, 255, 0)  # Green
-#             elif color == 'black': self.lblActor.GetProperty().SetColor(0, 0, 0)  # Black
-      
+        # Plot the point load
+        self.plotter.add_mesh(polydata)                                
+
+    def plot_dist_load(self, position1, position2, direction, length1, length2, label_text1, label_text2, annotation_size=5, color=None):
+
+        # Calculate the length of the distributed load
+        load_length = ((position2[0] - position1[0])**2 + (position2[1] - position1[1])**2 + (position2[2] - position1[2])**2)**0.5
+
+        # Find the direction cosines for the line the load acts on
+        line_dir_cos = [(position2[0] - position1[0])/load_length,
+                        (position2[1] - position1[1])/load_length,
+                        (position2[2] - position1[2])/load_length]
+
+        # Find the direction cosines for the direction the load acts in
+        dir_dir_cos = direction/np.linalg.norm(direction)
+
+        # Create point loads at intervals roughly equal to 75% of the load's largest length
+        # Add text labels to the first and last load arrow
+        if load_length > 0:
+            num_steps = int(round(0.75 * load_length/max(abs(length1), abs(length2)), 0))
+        else:
+            num_steps = 0
+
+        num_steps = max(num_steps, 1)
+        step = load_length/num_steps
+        pt_loads = []
+
+        for i in range(num_steps + 1):
+
+            # Calculate the position (X, Y, Z) of this load arrow's point
+            position = (position1[0] + i*step*line_dir_cos[0],
+                        position1[1] + i*step*line_dir_cos[1],
+                        position1[2] + i*step*line_dir_cos[2])
+
+            # Determine the length of this load arrow
+            length = length1 + (length2 - length1)/load_length*i*step
+
+            # Determine the label's text
+            if i == 0:
+                label_text = label_text1
+            elif i == num_steps:
+                label_text = label_text2
+            else:
+                label_text = None
+
+            # Plot the load arrow
+            self.plot_pt_load(position, dir_dir_cos, length, label_text)
+
+        # Draw a line between the first and last load arrow's tails (using cylinder here for better visualization)
+        tail_line = Cylinder(radius=annotation_size / 2, height=load_length)
+        tail_line.translate(position1 - length1 * dir_dir_cos)
+        tail_line.direction = dir_dir_cos
+
+        # Combine all geometry into a single PolyData object
+        self.mesh = PolyDataCollection(pt_loads + [tail_line])
+
+        # Set color
+        if color is None:
+            self.mesh.set_colors([0, 255, 0])  # Green
+        elif color == 'black':
+            self.mesh.set_colors([0, 0, 0])  # Black
+
 # class VisDistLoad():
 #     '''
 #     Creates a distributed load for the viewer
@@ -788,7 +771,7 @@ class Renderer:
 #         lineDirCos = [(position2[0]-position1[0])/loadLength, (position2[1]-position1[1])/loadLength, (position2[2]-position1[2])/loadLength]
       
 #         # Find the direction cosines for the direction the load acts in
-#         dirDirCos = direction/norm(direction)
+#         dirDirCos = direction/np.linalg.norm(direction)
       
 #         # Create point loads at intervals roughly equal to 75% of the load's largest length (magnitude)
 #         # Add text labels to the first and last load arrow
@@ -871,10 +854,10 @@ class Renderer:
 #         self.polydata = vtk.vtkAppendPolyData()
         
 #         # Find a vector perpendicular to the directional unit vector
-#         v1 = direction/norm(direction)  # v1 = The directional unit vector for the moment
+#         v1 = direction/np.linalg.norm(direction)  # v1 = The directional unit vector for the moment
 #         v2 = _PerpVector(v1)             # v2 = A unit vector perpendicular to v1
-#         v3 = cross(v1, v2)
-#         v3 = v3/norm(v3)                # v3 = A unit vector perpendicular to v1 and v2
+#         v3 = np.cross(v1, v2)
+#         v3 = v3/np.linalg.norm(v3)                # v3 = A unit vector perpendicular to v1 and v2
       
 #         # Generate an arc for the moment
 #         Xc, Yc, Zc = center
@@ -892,7 +875,7 @@ class Renderer:
 #         cone_radius = radius/8
 #         tip = vtk.vtkConeSource()
 #         tip.SetCenter(arc.GetPoint1()[0], arc.GetPoint1()[1], arc.GetPoint1()[2])
-#         tip.SetDirection(cross(v1, v2))
+#         tip.SetDirection(np.cross(v1, v2))
 #         tip.SetHeight(tip_length)
 #         tip.SetRadius(cone_radius)
 #         tip.Update()
@@ -933,7 +916,7 @@ class Renderer:
 #         ptLoads.append(VisPtLoad(position3, direction, length, label_text, annotation_size=annotation_size))
       
 #         # Find the direction cosines for the direction the load acts in
-#         dirDirCos = direction/norm(direction)
+#         dirDirCos = direction/np.linalg.norm(direction)
       
 #         # Find the positions of the tails of all the arrows at the corners of the area load. This is
 #         # where we will place the polygon.
@@ -985,7 +968,7 @@ def _PerpVector(v):
         k2 = -(i*i2+j*j2)/k
     
     # Return the unit vector
-    return [i2, j2, k2]/norm([i2, j2, k2])
+    return [i2, j2, k2]/np.linalg.norm([i2, j2, k2])
 
 def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
 
@@ -1067,50 +1050,6 @@ def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
             # Prevent divide by zero errors for nodes with no contour values
             if node.contour != []:
                 node.contour = sum(node.contour)/len(node.contour)
-
-# def _DeformedShape(model, scale_factor, annotation_size, combo_name, render_nodes=True, theme='default'):
-#     '''
-#     Renders the deformed shape of a model.
-    
-#     Parameters
-#     ----------
-#     model : FEModel3D
-#         Finite element model to be rendered.
-#     scale_factor : number
-#         The scale factor to apply to the model deformations.
-#     annotation_size : number
-#         Controls the height of text displayed with the model. The units used for `annotation_size` are
-#         the same as those used for lengths in the model. Sizes of other objects (such as nodes) are
-#         related to this value.
-#     combo_name : string
-#         The load case used for rendering the deflected shape.
-    
-#     Returns
-#     -------
-#     None.
-#     '''
-    
-#     # Create an empty PolyData
-#     polydata = pv.PolyData()
-        
-#     # Add the springs to the PolyData
-#     for spring in model.Springs.values():
-#         # Only add the spring if it is active for the given load combination
-#         if spring.active[combo_name]:
-#             vis_spring = VisDeformedSpring(spring, model.Nodes, scale_factor, combo_name)
-#             polydata += vis_spring.source.GetOutput()
-            
-#     # Adjust the color
-#     if theme == 'default':
-#         color = [255, 255, 0]  # Yellow
-#     elif theme == 'print':
-#         color = [26, 26, 26]  # Dark Grey
-#     else:
-#         color = [255, 255, 255]  # White
-    
-#     # Create a PyVista actor for the PolyData
-#     actor = pv.PolyData(polydata).plot(color=color)
-
 
 # def _RenderLoads(model, renderer, annotation_size, combo_name, case, theme='default'):
 
