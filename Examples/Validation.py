@@ -74,8 +74,8 @@ for val in x_coordinates:
 model.merge_duplicate_nodes()
 
 # Add members
-model.add_member('Vertical', 'A', 'B', material='Steel', section_name='100by100')
-model.add_member('Horizontal', 'B', 'C', material='Steel', section_name='100by100')
+model.add_member('Vertical', 'A', 'B', material_name='Steel', section_name='100by100')
+model.add_member('Horizontal', 'B', 'C', material_name='Steel', section_name='100by100')
 
 # Add supports
 model.def_support(

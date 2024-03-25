@@ -146,7 +146,7 @@ def add_wall(_model, name, wall_height, wall_width, thickness, origin):
                              thickness=thickness,
                              width=wall_height,
                              height=wall_width,
-                             material='concrete',
+                             material_name='concrete',
                              origin=origin,
                              plane='YZ'
                              )
@@ -235,7 +235,7 @@ for z in z_axis[0:len(z_axis) - 1]:
                              height=8,
                              width=16,
                              origin=[0, 0, z + 3],
-                             material='concrete',
+                             material_name='concrete',
                              mesh_size=1)
 
     model.Meshes['Floor_' + str(z + 3)].generate()

@@ -149,7 +149,7 @@ def add_y_direction_wall(_model, name, wall_height, wall_width, thickness, origi
                               thickness=thickness,
                               width=wall_height,
                               height=wall_width,
-                              material='concrete',
+                              material_name='concrete',
                               origin=origin,
                               plane='YZ'
                               )
@@ -183,7 +183,7 @@ def add_x_direction_wall(_model, name, wall_height, wall_width, thickness, origi
                               thickness=thickness,
                               width=wall_width,
                               height=wall_height,
-                              material='concrete',
+                              material_name='concrete',
                               origin=origin,
                               plane='XZ'
                               )
@@ -276,7 +276,7 @@ for z in z_axis:
                              height=35,
                              width=35,
                              origin=[0, 0, z + 3],
-                             material='concrete',
+                             material_name='concrete',
                              mesh_size=mesh_size_for_all)
 
     # Add an opening if the floor is not the roof floor

@@ -47,7 +47,7 @@ class Quad3D():
         try:
             self.E = self.model.Materials[material_name].E
             self.nu = self.model.Materials[material_name].nu
-            self.rho = self.model.Materials[material].rho
+            self.rho = self.model.Materials[material_name].rho
         except:
             raise KeyError('Please define the material ' + str(material_name) + ' before assigning it to plates.')
 

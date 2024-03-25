@@ -44,7 +44,7 @@ class Member3D():
         self.material_name = material_name  # The element's material
         self.E = model.Materials[material_name].E   # The modulus of elasticity of the element
         self.G = model.Materials[material_name].G   # The shear modulus of the element
-        self.rho = model.Materials[material].rho   # The density of the material
+        self.rho = model.Materials[material_name].rho   # The density of the material
 
 
         # Section properties
