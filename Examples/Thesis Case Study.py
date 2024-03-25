@@ -1,3 +1,17 @@
+"""
+This Python script aims to assess the performance when dealing with a relatively large
+structural model. The example problem involves the analysis of a twenty-one-storey building.
+
+Before running the script, ensure that the following additional libraries are installed:
+Scipy, vtk, and matplotlib.
+"""
+
+
+# Additional libraries required: Scipy, vtk, matplotlib
+# You can install these libraries using pip:
+# pip install scipy vtk matplotlib
+# ------------------------------------------------------------------------------------------------ #
+
 import numpy
 from PyNite import FEModel3D, Section
 import time as global_time
@@ -77,7 +91,7 @@ for x in x_axis:
 
         model.add_node(node_name, x, y, 0)
         ground_column_node_names.append(node_name)
-
+# ------------------------------------------------------------------------------------------------ #
 
 def add_column(_model, name, height, bottom_node):
     """
@@ -106,7 +120,7 @@ def add_column(_model, name, height, bottom_node):
 
     # Add the column
     _model.add_member(name, bottom_node, top_node, 'concrete', *column_section)
-
+# ------------------------------------------------------------------------------------------------ #
 
 def add_y_direction_wall(_model, name, wall_height, wall_width, thickness, origin):
     """
@@ -140,7 +154,7 @@ def add_y_direction_wall(_model, name, wall_height, wall_width, thickness, origi
                               plane='YZ'
                               )
     _model.Meshes[name].generate()
-
+# ------------------------------------------------------------------------------------------------ #
 
 def add_x_direction_wall(_model, name, wall_height, wall_width, thickness, origin):
     """
@@ -174,7 +188,7 @@ def add_x_direction_wall(_model, name, wall_height, wall_width, thickness, origi
                               plane='XZ'
                               )
     _model.Meshes[name].generate()
-
+# ------------------------------------------------------------------------------------------------ #
 
 def add_floor_beams(_model, z):
     """
@@ -201,7 +215,7 @@ def add_floor_beams(_model, z):
         _model.add_node(name + '1', 0, y, z)
         _model.add_node(name + '2', 35, y, z)
         _model.add_member(name, name + '1', name + '2', 'concrete', *beam_section)
-
+# ------------------------------------------------------------------------------------------------ #
 
 # Some necessary variables
 num_storey = len(z_axis)
@@ -281,7 +295,6 @@ for node in model.Nodes.values():
 # Merge the duplicate nodes
 model.merge_duplicate_nodes(tolerance=0.001)
 
-
 # In case we do not want to generate the model again, we can save it
 import pickle
 with open('large_model.pickle', 'wb') as file:
@@ -289,7 +302,7 @@ with open('large_model.pickle', 'wb') as file:
     pickle.dump(model, file)
 
 print("Model generation completed")
-
+# ------------------------------------------------------------------------------------------------ #
 
 # Add retrieve it when we want it
 import pickle
@@ -340,9 +353,9 @@ processes_seismic_data= column_stack((time, seismic_values))
 # all the time
 csv_file_path = 'EL Centro Processed.csv'
 savetxt(csv_file_path, processes_seismic_data, delimiter=' ', header='time,acceleration', comments='')
+# ------------------------------------------------------------------------------------------------ #
 
 # Start the time history analysis
-
 damping = dict(r_alpha = 0.01, r_beta = 0.01)
 model.analyze_linear_time_history_newmark_beta(
     analysis_method='direct',

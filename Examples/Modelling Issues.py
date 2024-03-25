@@ -1,3 +1,16 @@
+"""
+This Python script aims to tackle a moderately complex structural engineering problem
+using PyNite. Before running the script, ensure that the following additional libraries
+are installed: Scipy, vtk, and matplotlib.
+
+This example is hypothetical, but closely resembles situations encountered in real-world
+design scenarios.
+"""
+
+# Additional libraries required: Scipy, vtk, matplotlib
+# You can install these libraries using pip:
+# pip install scipy vtk matplotlib
+
 from PyNite import FEModel3D
 from PyNite.Visualization import Renderer
 
@@ -69,7 +82,7 @@ for z in z_axis:
                     node_names_for_supports.append(name)
 
     all_floor_nodes[str(z)] = floor_nodes
-
+# ------------------------------------------------------------------------------------------------
 
 def add_column(_model, name, height, bottom_node):
     """
@@ -102,7 +115,7 @@ def add_column(_model, name, height, bottom_node):
     # Merge any duplicate nodes, which is expected since we already defined control
     # nodes
     _model.merge_duplicate_nodes(tolerance=0.05)
-
+# ------------------------------------------------------------------------------------------------
 
 def add_wall(_model, name, wall_height, wall_width, thickness, origin):
     """
@@ -143,7 +156,7 @@ def add_wall(_model, name, wall_height, wall_width, thickness, origin):
     # After meshing, there is a possibility of generating duplicate nodes
     # Hence we need to merge the duplicate nodes
     _model.merge_duplicate_nodes(tolerance=0.01)
-
+# ------------------------------------------------------------------------------------------------
 
 def add_floor_beams(_model, z):
     """
@@ -193,7 +206,7 @@ def add_floor_beams(_model, z):
 
         # Merge duplicate nodes
         _model.merge_duplicate_nodes()
-
+# ------------------------------------------------------------------------------------------------
 
 # Now we can draw the columns, beams, walls and floor slabs using the helper functions
 for z in z_axis[0:len(z_axis) - 1]:
@@ -233,6 +246,7 @@ for z in z_axis[0:len(z_axis) - 1]:
 # Define the supports
 for node in node_names_for_supports:
     model.def_support(node, True, True, True, True, True, True)
+# ------------------------------------------------------------------------------------------------
 
 # Visualise the model
 renderer = Renderer(model)
@@ -240,9 +254,11 @@ renderer.set_render_loads(False)
 renderer.set_annotation_size(0.1)
 renderer.set_deformed_shape(False)
 renderer.render_model()
+# ------------------------------------------------------------------------------------------------
 
 # Perform modal analysis
 model.analyze_modal(num_modes=10, log=True, type_of_mass_matrix='consistent', sparse=True)
+# ------------------------------------------------------------------------------------------------
 
 # For time history analysis, we will use seismic data
 # So we start by processing it so that we can convert it into the way PyNite can use it
@@ -300,6 +316,7 @@ model.analyze_linear_time_history_newmark_beta(
     recording_frequency=1
 
 )
+# ------------------------------------------------------------------------------------------------
 
 # Now that the model is solved, we can save it
 import pickle
@@ -312,6 +329,7 @@ from PyNite.ResultsModelBuilder import ModalResultsModelBuilder
 model_builder = ModalResultsModelBuilder('solved_model.pickle')
 model_with_modal_results = model_builder.get_model(mode=1)
 print("Natural Frequencies (Hz): ", model_with_modal_results.NATURAL_FREQUENCIES())
+# ------------------------------------------------------------------------------------------------
 
 # To access time history analysis results, we do the same
 from PyNite.ResultsModelBuilder import THAResultsModelBuilder
@@ -354,6 +372,7 @@ for t in time_for_plot:
     stress = -1e-6 * solved_model.Quads[target_quad].membrane(
         s=-1, r=-1, combo_name=solved_model.THA_combo_name)[0]
     bottom_wall_direct_stress.append(stress)
+# ------------------------------------------------------------------------------------------------
 
 # Plot the roof displacement
 from matplotlib import pyplot as plt
@@ -362,6 +381,7 @@ plt.title(label="Roof Displacement")
 plt.xlabel('Time (s)')
 plt.ylabel('Displacement (mm)')
 plt.show()
+# ------------------------------------------------------------------------------------------------
 
 # Plot the direct stress
 plt.plot(time_for_plot, bottom_wall_direct_stress)

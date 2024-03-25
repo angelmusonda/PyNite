@@ -1,7 +1,16 @@
 """
-This example is meant for testing the dynamic analysis features of PyNite.
-The problem and its solution are provided by REF
+This Python script aims to validate the accuracy of PyNite's dynamic analysis features.
+Before running the script, ensure that the following additional libraries are installed:
+Scipy, vtk, and matplotlib.
+
+The problem and its solution are provided in the following reference:
+Cook, R. D., Malkus, D. S., Plesha, M. E., Witt, R. J. (2001). Concepts and Applications
+of Finite Element Analysis, 4th Edition. Wiley. ISBN: 0471356050
 """
+
+# Additional libraries required: Scipy, vtk, matplotlib
+# You can install these libraries using pip:
+# pip install scipy vtk matplotlib
 
 import pickle
 from numpy import linspace, sqrt
@@ -19,7 +28,7 @@ model = FEModel3D()
 rho = 7860  # kg/m3
 
 # Modulus of elasticity
-E = 200e9  # GPa
+E = 200e9  # N/m^2
 
 # Poisson's ratio
 nu = 0.29  # Poisson's ratio
@@ -78,7 +87,7 @@ model.def_support(
     'C', support_DX=False, support_DY=True, support_DZ=True,
     support_RX=True, support_RY=False, support_RZ=True
 )
-
+# ------------------------------------------------------------------------------------------------
 # Visualise the model
 renderer = Renderer(model)
 renderer.deformed_shape = False
@@ -86,6 +95,7 @@ renderer.render_loads = False
 renderer.annotation_size = 0.03
 renderer.render_model()
 
+# ------------------------------------------------------------------------------------------------
 # Add a point load at Node C. This load will be used to define the harmonic case
 model.add_node_load("C", Direction='FX', P=3000, case='Harmonic')
 
@@ -102,9 +112,11 @@ model.def_load_profile("THA", time=[0, 0.01], profile=[1, 1])
 # Create a load combination just for this case. This is because PyNite performs analyses
 # on load combinations, and not individual load cases
 model.add_load_combo(name='THA', factors={'THA': 1})
+# ------------------------------------------------------------------------------------------------
 
 # Perform modal analysis
 model.analyze_modal(num_modes=7)
+# ------------------------------------------------------------------------------------------------
 
 # Perform harmonic analysis (Frequency Response Analysis - FRA)
 # Define  constant modal damping of 2%
@@ -113,6 +125,7 @@ model.analyze_harmonic(
     f1=50, f2=160, f_div=120, harmonic_combo="Harmonic",
     damping_options=model_damping
 )
+# ------------------------------------------------------------------------------------------------
 
 # Perform time history analysis
 model.analyze_linear_time_history_newmark_beta(
@@ -121,6 +134,7 @@ model.analyze_linear_time_history_newmark_beta(
     step_size=0.0001,
     response_duration=0.1
 )
+# ------------------------------------------------------------------------------------------------
 
 # Now that everything is solved, save the solved model
 with open('validation.pickle', 'wb') as file:
@@ -147,6 +161,7 @@ renderer.render_model()
 
 # The natural frequencies can also be accessed as follows
 print("NATURAL FREQUENCIES (Hz): ", model_with_modal_results.NATURAL_FREQUENCIES())
+# ------------------------------------------------------------------------------------------------
 
 # We now want to plot the x - displacement at the middle of the vertical member
 # due to the harmonic load, for the entire load frequency range analysed for
@@ -180,11 +195,13 @@ for f in freq:
 
 # The results can be plotted
 from matplotlib import pyplot as plt
-plt.plot(freq,disp_node_V)
+
+plt.plot(freq, disp_node_V)
 plt.title(label="Displacement")
 plt.xlabel('Frequency (Hz)')
 plt.ylabel('Displacement (10^-3 mm)')
 plt.show()
+# ------------------------------------------------------------------------------------------------
 
 # To view the time history results, say the rotation at the middle of the horizontal
 # member, we instantiate the time history results builder
@@ -207,7 +224,8 @@ for t in time:
 
 # Plot the results
 from matplotlib import pyplot as plt
-plt.plot(time,rotation_node_H)
+
+plt.plot(time, rotation_node_H)
 plt.title(label="Rotation")
 plt.xlabel('Times (s)')
 plt.ylabel('Rotation (rad)')
