@@ -41,6 +41,10 @@ class Renderer:
         self._load_label_points = []
         self._load_labels = []
 
+        # Initialize spring labels
+        self._spring_label_points = []
+        self._spring_labels = []
+
     @property
     def window_width(self):
         return self.plotter.window_size[0]
@@ -215,9 +219,12 @@ class Renderer:
         # Clear out the old plot (if any)
         self.plotter.clear()
 
-        # Clear out internally stored load labels (if any)
+        # Clear out internally stored labels (if any)
         self._load_label_points = []
         self._load_labels = []
+
+        self._spring_label_points = []
+        self._spring_labels = []
         
         # Check if nodes are to be rendered
         if self.render_nodes == True:
@@ -238,6 +245,7 @@ class Renderer:
         # Render node labels
         label_points = [[node.X, node.Y, node.Z] for node in self.model.Nodes.values()]
         labels = [node.name for node in self.model.Nodes.values()]
+        
         self.plotter.add_point_labels(label_points, labels, italic=False, bold=False, font_size=24, text_color='grey', font_family=None, shadow=False, show_points=True, point_color=None, point_size=None, name=None, shape_color=None, shape=None, fill_shape=True, margin=3, shape_opacity=1.0, pickable=False, render_points_as_spheres=True, tolerance=0.001, reset_camera=None, always_visible=False, render=True)
 
         # Render the springs
@@ -323,8 +331,8 @@ class Renderer:
             if node.support_DX:
 
                 # Line showing support direction
-                self.plotter.add_mesh((node.X-size, node.Y, node.Z),
-                                      (node.X+size, node.Y, node.Z))
+                self.plotter.add_mesh(pv.Line((node.X-size, node.Y, node.Z),
+                                              (node.X+size, node.Y, node.Z)))
 
                 # Cones at both ends
                 self.plotter.add_mesh(pv.Cone(center=(node.X-size, node.Y, node.Z),
@@ -440,40 +448,27 @@ class Renderer:
 
     def plot_spring(self, spring, size, color='grey'):
         
-        # Create points for the line source
-        points = np.zeros((2, 3))  # 2 points in 3D
-        line = pv.Line(points)
-
-        # Step through each node in the model and find the position of the i-node and j-node
+        # Find the position of the i-node and j-node
         i_node = spring.i_node
         j_node = spring.j_node
         Xi, Yi, Zi = i_node.X, i_node.Y, i_node.Z
-        line.points[0] = [Xi, Yi, Zi]
         Xj, Yj, Zj = j_node.X, j_node.Y, j_node.Z
-        line.points[1] = [Xj, Yj, Zj]
 
-        # Create the PyVista actors
-        actor = pv.PolyData(line).tube(radius=0.1)
-        label = pv.VectorText(spring.name)
-
-        # Set up an actor for the spring label
-        lblActor = pv.Follower(label)
-        lblActor.scale(size, size, size)
-        lblActor.position = [(Xi+Xj)/2, (Yi+Yj)/2, (Zi+Zj)/2]
-
-        # Add some color
+        # Create the line
+        line = pv.Line((Xi, Yi, Zi), (Xj, Yj, Zj))
+        
+        # Change the color
         if color is None:
-            actor.point_data["color"] = np.array([255, 0, 255])  # Magenta
-            lblActor.point_data["color"] = np.array([255, 0, 255])
+            line.plot(color='magenta')
         elif color == 'black':
-            actor.point_data["color"] = np.array([0, 0, 0])  # Black
-            lblActor.point_data["color"] = np.array([0, 0, 0])
+            line.plot(color='black')
 
-        # Plot the actors
-        plotter = pv.Plotter()
-        plotter.add_mesh(actor)
-        plotter.add_mesh(lblActor)
-        plotter.show()
+        # Add the spring label to the list of labels
+        self._spring_labels.append(spring.name)
+        self._spring_label_points.append([(Xi+Xj)/2, (Yi+Yj)/2, (Zi+Zj)/2])
+
+        # Add the line to the plotter
+        self.plotter.add_mesh(line)
             
     def plot_plates(self, deformed_shape, deformed_scale, color_map, scalar_bar, scalar_bar_text_size, combo_name, theme='default'):
         
@@ -741,12 +736,12 @@ class Renderer:
             self.plot_pt_load(position, dir_dir_cos, length, label_text)
 
         # Draw a line between the first and last load arrow's tails (using cylinder here for better visualization)
-        tail_line = Cylinder(radius=annotation_size / 2, height=load_length)
+        tail_line = pv.Cylinder(radius=annotation_size / 2, height=load_length)
         tail_line.translate(position1 - length1 * dir_dir_cos)
         tail_line.direction = dir_dir_cos
 
         # Combine all geometry into a single PolyData object
-        self.mesh = PolyDataCollection(pt_loads + [tail_line])
+        self.mesh = pv.PolyDataCollection(pt_loads + [tail_line])
 
         # Set color
         if color is None:
