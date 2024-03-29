@@ -281,7 +281,8 @@ class Renderer:
 
             # _DeformedShape(self.model, self.deformed_scale, self.annotation_size, self.combo_name, self.render_nodes, self.theme)
 
-        # # Render the loads if requested
+        # Render the loads if requested
+        self._calc_max_loads()
         # if (self.combo_name != None or self.case != None) and self.render_loads != False:
         #     _RenderLoads(self.model, renderer, self.annotation_size, self.combo_name, self.case, self.theme)
         
@@ -754,191 +755,329 @@ class Renderer:
         elif color == 'black':
             self.mesh.set_colors([0, 0, 0])  # Black
 
-# class VisDistLoad():
-#     '''
-#     Creates a distributed load for the viewer
-#     '''
+    def plot_moment(self, center, direction, radius, label_text=None, annotation_size=5, 
+                    color=None):
+
+        # Find a vector perpendicular to the direction vector
+        v1 = direction / direction.magnitude()  # v1: directional unit vector
+        v2 = pv.random.unit_vector(direction=None, orthogonal_to=v1)  # v2: unit vector perpendicular to v1
+
+        # Generate an arc for the moment
+        arc = pv.Arc(center=center, radius=radius, starting_angle=0, ending_angle=180, 
+                    resolution=20, normal=v2)
+
+        # Generate the arrow tip at the end of the arc
+        tip_length = radius / 2
+        cone_radius = radius / 8
+        tip = pv.Cone(radius=cone_radius, height=tip_length, origin=arc.points[-1])
+        tip.rotate(axis=v2, angle=90)  # Rotate for proper orientation
+
+        # Combine the moment body and tip
+        self.mesh = arc + tip
+
+        # Create the text label
+        if label_text:
+            text_pos = center + (radius + 0.25 * annotation_size) * v2
+            label = pv.Text(text=label_text, position=text_pos, text_scale=annotation_size)
+            self.mesh.append(label)
+
+        # Set color
+        if color is None:
+            self.mesh.actor.property.color = 'green'  # Green
+        elif color == 'black':
+            self.mesh.actor.property.color = 'black'  # Black
+
+    # class VisMoment():
+    #     '''
+    #     Creates a concentrated moment for the viewer
+    #     '''
+        
+    #     def __init__(self, center, direction, radius, label_text=None, annotation_size=5, color=None):
+    #         '''
+    #         Constructor.
+        
+    #         Parameters
+    #         ----------
+    #         center : tuple
+    #           A tuple of X, Y and Z coordinates for center of the moment: (X, Y, Z).
+    #         direction : tuple
+    #           A tuple indicating the direction vector for the moment: (i, j, k).
+    #         radius : number
+    #           The radius of the moment.
+    #         tip_length : number
+    #           The height of the arrow head.
+    #         label_text : string
+    #           Text that will show up at the tail of the moment. If set to 'None' no text will be displayed.
+    #         '''
+        
+    #         # Create an append filter to store load polydata in
+    #         self.polydata = vtk.vtkAppendPolyData()
+            
+    #         # Find a vector perpendicular to the directional unit vector
+    #         v1 = direction/np.linalg.norm(direction)  # v1 = The directional unit vector for the moment
+    #         v2 = _PerpVector(v1)             # v2 = A unit vector perpendicular to v1
+    #         v3 = np.cross(v1, v2)
+    #         v3 = v3/np.linalg.norm(v3)                # v3 = A unit vector perpendicular to v1 and v2
+        
+    #         # Generate an arc for the moment
+    #         Xc, Yc, Zc = center
+    #         arc = vtk.vtkArcSource()
+    #         arc.SetCenter(Xc, Yc, Zc)
+    #         arc.SetPoint1(Xc + v2[0]*radius, Yc + v2[1]*radius, Zc + v2[2]*radius)
+    #         arc.SetPoint2(Xc + v3[0]*radius, Yc + v3[1]*radius, Zc + v3[2]*radius)
+    #         arc.SetNegative(True)
+    #         arc.SetResolution(20)
+    #         arc.Update()
+    #         self.polydata.AddInputData(arc.GetOutput())
+        
+    #         # Generate the arrow tip at the end of the arc
+    #         tip_length = radius/2
+    #         cone_radius = radius/8
+    #         tip = vtk.vtkConeSource()
+    #         tip.SetCenter(arc.GetPoint1()[0], arc.GetPoint1()[1], arc.GetPoint1()[2])
+    #         tip.SetDirection(np.cross(v1, v2))
+    #         tip.SetHeight(tip_length)
+    #         tip.SetRadius(cone_radius)
+    #         tip.Update()
+    #         self.polydata.AddInputData(tip.GetOutput())
+        
+    #         # Update the polydata one last time now that we're done appending items to it
+    #         self.polydata.Update()
+        
+    #         # Create the text label
+    #         label = vtk.vtkVectorText()
+    #         label.SetText(label_text)
+    #         lblMapper = vtk.vtkPolyDataMapper()
+    #         lblMapper.SetInputConnection(label.GetOutputPort())
+    #         self.lblActor = vtk.vtkFollower()
+    #         self.lblActor.SetMapper(lblMapper)
+    #         self.lblActor.SetScale(annotation_size, annotation_size, annotation_size)
+    #         self.lblActor.SetPosition(Xc + v3[0]*(radius + 0.25*annotation_size), \
+    #                                   Yc + v3[1]*(radius + 0.25*annotation_size), \
+    #                                   Zc + v3[2]*(radius + 0.25*annotation_size))
+    #         if color is None: self.lblActor.GetProperty().SetColor(0, 255, 0)  # Green
+    #         elif color == 'black': self.lblActor.GetProperty().SetColor(0, 0, 0)  # Black
+
+    def plot_area_load(self, position0, position1, position2, position3, direction, length, label_text, annotation_size=5, theme='default'):
+
+        # Find the direction cosines for the direction the load acts in
+        dir_dir_cos = direction / direction.magnitude()
+
+        # Find the positions of the tails of all the arrows at the corners
+        self.p0 = position0 - dir_dir_cos * length
+        self.p1 = position1 - dir_dir_cos * length
+        self.p2 = position2 - dir_dir_cos * length
+        self.p3 = position3 - dir_dir_cos * length
+
+        # Create point loads (for reference, not used in the final mesh)
+        # pt_loads = [
+        #     VisPtLoad(position0, direction, length, label_text, annotation_size=annotation_size),
+        #     VisPtLoad(position1, direction, length, label_text, annotation_size=annotation_size),
+        #     VisPtLoad(position2, direction, length, label_text, annotation_size=annotation_size),
+        #     VisPtLoad(position3, direction, length, label_text, annotation_size=annotation_size),
+        # ]
+
+        # Create the area load polygon (quad)
+        self.mesh = pv.Polygon(points=[self.p0, self.p1, self.p2, self.p3])
+
+        # Add label to the first corner
+        self.label_actor = pv.Text(text=label_text, position=self.p0 + (0.5 * length) * dir_dir_cos, text_scale=annotation_size)
+
+        # Set label color based on theme
+        if theme == 'print':
+            self.label_actor.actor.property.color = 'red'
+        elif theme == 'default':
+            self.label_actor.actor.property.color = 'green'
     
-#     def __init__(self, position1, position2, direction, length1, length2, label_text1, label_text2, annotation_size=5, color=None):
-#         '''
-#         Constructor.
-#         '''
-      
-#         # Calculate the length of the distributed load
-#         loadLength = ((position2[0]-position1[0])**2 + (position2[1]-position1[1])**2 + (position2[2]-position1[2])**2)**0.5
-      
-#         # Find the direction cosines for the line the load acts on
-#         lineDirCos = [(position2[0]-position1[0])/loadLength, (position2[1]-position1[1])/loadLength, (position2[2]-position1[2])/loadLength]
-      
-#         # Find the direction cosines for the direction the load acts in
-#         dirDirCos = direction/np.linalg.norm(direction)
-      
-#         # Create point loads at intervals roughly equal to 75% of the load's largest length (magnitude)
-#         # Add text labels to the first and last load arrow
-#         if loadLength > 0:
-#             num_steps = int(round(0.75*loadLength/max(abs(length1), abs(length2)), 0))
-#         else:
-#             num_steps = 0
+    def _calc_max_loads(self):
 
-#         num_steps = max(num_steps, 1)
-#         step = loadLength/num_steps
-#         ptLoads = []
-      
-#         for i in range(num_steps + 1):
-      
-#             # Calculate the position (X, Y, Z) of this load arrow's point
-#             position = (position1[0] + i*step*lineDirCos[0], position1[1] + i*step*lineDirCos[1], position1[2] + i*step*lineDirCos[2])
+        max_pt_load = 0
+        max_moment = 0
+        max_dist_load = 0
+        max_area_load = 0
         
-#             # Determine the length of this load arrow
-#             length = length1 + (length2 - length1)/loadLength*i*step
+        # Find the requested load combination or load case
+        if self.case == None:
         
-#             # Determine the label's text
-#             if i == 0:
-#                 label_text = label_text1
-#             elif i == num_steps:
-#                 label_text = label_text2
+            # Step through each node
+            for node in self.model.Nodes.values():
         
-#             # Create the load arrow
-#             ptLoads.append(VisPtLoad(position, direction, length, label_text, annotation_size=annotation_size))
-          
-#         # Draw a line between the first and last load arrow's tails
-#         tail_line = vtk.vtkLineSource()
-#         tail_line.SetPoint1((position1[0] - length1*dirDirCos[0], position1[1] - length1*dirDirCos[1], position1[2] - length1*dirDirCos[2]))
-#         tail_line.SetPoint2((position2[0] - length2*dirDirCos[0], position2[1] - length2*dirDirCos[1], position2[2] - length2*dirDirCos[2]))
-      
-#         # Combine all the geometry into one 'vtkPolyData' object
-#         self.polydata = vtk.vtkAppendPolyData()
-#         for arrow in ptLoads:
-#             arrow.polydata.Update()
-#             self.polydata.AddInputData(arrow.polydata.GetOutput())
+                # Step through each nodal load to find the largest one
+                for load in node.NodeLoads:
+                
+                    # Find the largest loads in the load combination
+                    if load[2] in self.model.LoadCombos[self.combo_name].factors:
+                        if load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ':
+                            if abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[2]]) > max_pt_load:
+                                max_pt_load = abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[2]])
+                        else:
+                            if abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[2]]) > max_moment:
+                                max_moment = abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[2]])
         
-#         tail_line.Update()
-#         self.polydata.AddInputData(tail_line.GetOutput())
-#         self.polydata.Update()
-      
-#         # Create a mapper and actor for the geometry
-#         mapper = vtk.vtkPolyDataMapper()
-#         mapper.SetInputConnection(self.polydata.GetOutputPort())
-#         self.actor = vtk.vtkActor()
-#         if color is None: self.actor.GetProperty().SetColor(0, 255, 0)  # Green
-#         elif color == 'black': self.actor.GetProperty().SetColor(0, 0, 0)  # Black
-#         self.actor.SetMapper(mapper)
-      
-#         # Get the actors for the labels
-#         self.lblActors = [ptLoads[0].lblActor, ptLoads[len(ptLoads) - 1].lblActor]
+            # Step through each member
+            for member in self.model.Members.values():
+        
+                # Step through each member point load
+                for load in member.PtLoads:
+                    
+                    # Find and store the largest point load and moment in the load combination
+                    if load[3] in self.model.LoadCombos[self.combo_name].factors:
+            
+                        if (load[0] == 'Fx' or load[0] == 'Fy' or load[0] == 'Fz'
+                        or  load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ'):
+                            if abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[3]]) > max_pt_load:
+                                max_pt_load = abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[3]])
+                        else:
+                            if abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[3]]) > max_moment:
+                                max_moment = abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[3]])
+        
+                # Step through each member distributed load
+                for load in member.DistLoads:
+            
+                    #Find and store the largest distributed load in the load combination
+                    if load[5] in self.model.LoadCombos[self.combo_name].factors:
+            
+                        if abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[5]]) > max_dist_load:
+                            max_dist_load = abs(load[1]*self.model.LoadCombos[self.combo_name].factors[load[5]])
+                        if abs(load[2]*self.model.LoadCombos[self.combo_name].factors[load[5]]) > max_dist_load:
+                            max_dist_load = abs(load[2]*self.model.LoadCombos[self.combo_name].factors[load[5]])
+        
+            # Step through each plate
+            for plate in self.model.Plates.values():
+        
+                # Step through each plate load
+                for load in plate.pressures:
+            
+                    if load[1] in self.model.LoadCombos[self.combo_name].factors:
+                        if abs(load[0]*self.model.LoadCombos[self.combo_name].factors[load[1]]) > max_area_load:
+                            max_area_load = abs(load[0]*self.model.LoadCombos[self.combo_name].factors[load[1]])
+        
+            # Step through each quad
+            for quad in self.model.Quads.values():
+        
+                # Step through each plate load
+                for load in quad.pressures:
+            
+                    # Check to see if the load case is in the requested load combination
+                    if load[1] in self.model.LoadCombos[self.combo_name].factors:
+                        if abs(load[0]*self.model.LoadCombos[self.combo_name].factors[load[1]]) > max_area_load:
+                            max_area_load = abs(load[0]*self.model.LoadCombos[self.combo_name].factors[load[1]])
+        
+        # Behavior if case has been specified
+        else:
+            
+            # Step through each node
+            for node in self.model.Nodes.values():
+        
+                # Step through each nodal load to find the largest one
+                for load in node.NodeLoads:
+                
+                    # Find the largest loads in the load case
+                    if load[2] == self.case:
+                        if load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ':
+                            if abs(load[1]) > max_pt_load:
+                                max_pt_load = abs(load[1])
+                        else:
+                            if abs(load[1]) > max_moment:
+                                max_moment = abs(load[1])
+        
+            # Step through each member
+            for member in self.model.Members.values():
+        
+                # Step through each member point load
+                for load in member.PtLoads:
+                
+                    # Find and store the largest point load and moment in the load case
+                    if load[3] == self.case:
+                
+                        if (load[0] == 'Fx' or load[0] == 'Fy' or load[0] == 'Fz'
+                        or  load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ'):
+                            if abs(load[1]) > max_pt_load:
+                                max_pt_load = abs(load[1])
+                        else:
+                            if abs(load[1]) > max_moment:
+                                max_moment = abs(load[1])
+            
+                # Step through each member distributed load
+                for load in member.DistLoads:
+            
+                    # Find and store the largest distributed load in the load case
+                    if load[5] == self.case:
+                
+                        if abs(load[1]) > max_dist_load:
+                            max_dist_load = abs(load[1])
+                        if abs(load[2]) > max_dist_load:
+                            max_dist_load = abs(load[2])
+                
+                # Step through each plate
+                for plate in self.model.Plates.values():
+            
+                    # Step through each plate load
+                    for load in plate.pressures:
+            
+                        if load[1] == self.case:
+                
+                            if abs(load[0]) > max_area_load:
+                                max_area_load = abs(load[0])
+            
+            # Step through each quad
+            for quad in self.model.Quads.values():
+        
+                # Step through each plate load
+                for load in quad.pressures:
+            
+                    if load[1] == self.case:
+            
+                        if abs(load[0]) > max_area_load:
+                            max_area_load = abs(load[0])
+            
+        # Store the maximum loads in the load combination or load case
+        self._max_pt_load = max_pt_load
+        self._max_moment = max_moment
+        self._max_dist_load = max_dist_load
+        self._max_area_load = max_area_load
 
-# class VisMoment():
-#     '''
-#     Creates a concentrated moment for the viewer
-#     '''
-    
-#     def __init__(self, center, direction, radius, label_text=None, annotation_size=5, color=None):
-#         '''
-#         Constructor.
-      
-#         Parameters
-#         ----------
-#         center : tuple
-#           A tuple of X, Y and Z coordinates for center of the moment: (X, Y, Z).
-#         direction : tuple
-#           A tuple indicating the direction vector for the moment: (i, j, k).
-#         radius : number
-#           The radius of the moment.
-#         tip_length : number
-#           The height of the arrow head.
-#         label_text : string
-#           Text that will show up at the tail of the moment. If set to 'None' no text will be displayed.
-#         '''
-      
-#         # Create an append filter to store load polydata in
-#         self.polydata = vtk.vtkAppendPolyData()
+    # class VisAreaLoad():
+    #     '''
+    #     Creates an area load for the viewer
+    #     '''
         
-#         # Find a vector perpendicular to the directional unit vector
-#         v1 = direction/np.linalg.norm(direction)  # v1 = The directional unit vector for the moment
-#         v2 = _PerpVector(v1)             # v2 = A unit vector perpendicular to v1
-#         v3 = np.cross(v1, v2)
-#         v3 = v3/np.linalg.norm(v3)                # v3 = A unit vector perpendicular to v1 and v2
-      
-#         # Generate an arc for the moment
-#         Xc, Yc, Zc = center
-#         arc = vtk.vtkArcSource()
-#         arc.SetCenter(Xc, Yc, Zc)
-#         arc.SetPoint1(Xc + v2[0]*radius, Yc + v2[1]*radius, Zc + v2[2]*radius)
-#         arc.SetPoint2(Xc + v3[0]*radius, Yc + v3[1]*radius, Zc + v3[2]*radius)
-#         arc.SetNegative(True)
-#         arc.SetResolution(20)
-#         arc.Update()
-#         self.polydata.AddInputData(arc.GetOutput())
-      
-#         # Generate the arrow tip at the end of the arc
-#         tip_length = radius/2
-#         cone_radius = radius/8
-#         tip = vtk.vtkConeSource()
-#         tip.SetCenter(arc.GetPoint1()[0], arc.GetPoint1()[1], arc.GetPoint1()[2])
-#         tip.SetDirection(np.cross(v1, v2))
-#         tip.SetHeight(tip_length)
-#         tip.SetRadius(cone_radius)
-#         tip.Update()
-#         self.polydata.AddInputData(tip.GetOutput())
-      
-#         # Update the polydata one last time now that we're done appending items to it
-#         self.polydata.Update()
-      
-#         # Create the text label
-#         label = vtk.vtkVectorText()
-#         label.SetText(label_text)
-#         lblMapper = vtk.vtkPolyDataMapper()
-#         lblMapper.SetInputConnection(label.GetOutputPort())
-#         self.lblActor = vtk.vtkFollower()
-#         self.lblActor.SetMapper(lblMapper)
-#         self.lblActor.SetScale(annotation_size, annotation_size, annotation_size)
-#         self.lblActor.SetPosition(Xc + v3[0]*(radius + 0.25*annotation_size), \
-#                                   Yc + v3[1]*(radius + 0.25*annotation_size), \
-#                                   Zc + v3[2]*(radius + 0.25*annotation_size))
-#         if color is None: self.lblActor.GetProperty().SetColor(0, 255, 0)  # Green
-#         elif color == 'black': self.lblActor.GetProperty().SetColor(0, 0, 0)  # Black
+    #     def __init__(self, position0, position1, position2, position3, direction, length, label_text, annotation_size=5, theme='default'):
+    #         '''
+    #         Constructor
+    #         '''
+        
+    #         # Create a point load for each corner of the area load
+    #         ptLoads = []
+    #         ptLoads.append(VisPtLoad(position0, direction, length, label_text, annotation_size=annotation_size))
+    #         ptLoads.append(VisPtLoad(position1, direction, length, label_text, annotation_size=annotation_size))
+    #         ptLoads.append(VisPtLoad(position2, direction, length, label_text, annotation_size=annotation_size))
+    #         ptLoads.append(VisPtLoad(position3, direction, length, label_text, annotation_size=annotation_size))
+        
+    #         # Find the direction cosines for the direction the load acts in
+    #         dirDirCos = direction/np.linalg.norm(direction)
+        
+    #         # Find the positions of the tails of all the arrows at the corners of the area load. This is
+    #         # where we will place the polygon.
+    #         self.p0 = position0 - dirDirCos*length
+    #         self.p1 = position1 - dirDirCos*length
+    #         self.p2 = position2 - dirDirCos*length
+    #         self.p3 = position3 - dirDirCos*length
+        
+    #         # Combine all geometry into one 'vtkPolyData' object
+    #         self.polydata = vtk.vtkAppendPolyData()
+    #         for arrow in ptLoads:
+    #             self.polydata.AddInputData(arrow.polydata.GetOutput())
+    #         self.polydata.Update()
+        
+    #         # Add a label
+    #         self.label_actor = ptLoads[0].lblActor
 
-# class VisAreaLoad():
-#     '''
-#     Creates an area load for the viewer
-#     '''
-    
-#     def __init__(self, position0, position1, position2, position3, direction, length, label_text, annotation_size=5, theme='default'):
-#         '''
-#         Constructor
-#         '''
-      
-#         # Create a point load for each corner of the area load
-#         ptLoads = []
-#         ptLoads.append(VisPtLoad(position0, direction, length, label_text, annotation_size=annotation_size))
-#         ptLoads.append(VisPtLoad(position1, direction, length, label_text, annotation_size=annotation_size))
-#         ptLoads.append(VisPtLoad(position2, direction, length, label_text, annotation_size=annotation_size))
-#         ptLoads.append(VisPtLoad(position3, direction, length, label_text, annotation_size=annotation_size))
-      
-#         # Find the direction cosines for the direction the load acts in
-#         dirDirCos = direction/np.linalg.norm(direction)
-      
-#         # Find the positions of the tails of all the arrows at the corners of the area load. This is
-#         # where we will place the polygon.
-#         self.p0 = position0 - dirDirCos*length
-#         self.p1 = position1 - dirDirCos*length
-#         self.p2 = position2 - dirDirCos*length
-#         self.p3 = position3 - dirDirCos*length
-      
-#         # Combine all geometry into one 'vtkPolyData' object
-#         self.polydata = vtk.vtkAppendPolyData()
-#         for arrow in ptLoads:
-#             self.polydata.AddInputData(arrow.polydata.GetOutput())
-#         self.polydata.Update()
-      
-#         # Add a label
-#         self.label_actor = ptLoads[0].lblActor
-
-#         # Add color to the area load label
-#         if theme == 'print':
-#             self.label_actor.GetProperty().SetColor(255/255, 0/255, 0/255)  # red
-#         elif theme == 'default':
-#             self.label_actor.GetProperty().SetColor(0/255, 255/255, 0/255)  # green
+    #         # Add color to the area load label
+    #         if theme == 'print':
+    #             self.label_actor.GetProperty().SetColor(255/255, 0/255, 0/255)  # red
+    #         elif theme == 'default':
+    #             self.label_actor.GetProperty().SetColor(0/255, 255/255, 0/255)  # green
 
 def _PerpVector(v):
     '''
@@ -1066,7 +1205,7 @@ def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
 #     polygon_polydata = vtk.vtkPolyData()
     
 #     # Get the maximum load magnitudes that will be used to normalize the display scale
-#     max_pt_load, max_moment, max_dist_load, max_area_load = _MaxLoads(model, combo_name, case)
+#     max_pt_load, max_moment, max_dist_load, max_area_load = _max_loads(model, combo_name, case)
     
 #     # Display the requested load combination, or 'Combo 1' if no load combo or case has been
 #     # specified
@@ -1297,148 +1436,3 @@ def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
 #         polygon_actor.GetProperty().SetColor(0/255, 255/255, 0/255)  # Green
 #     elif theme == 'print':
 #         polygon_actor.GetProperty().SetColor(255/255, 0/255, 0/255)  # Red
-
-def _MaxLoads(model, combo_name=None, case=None):
-
-    max_pt_load = 0
-    max_moment = 0
-    max_dist_load = 0
-    max_area_load = 0
-    
-    # Find the requested load combination or load case
-    if case == None:
-    
-        # Step through each node
-        for node in model.Nodes.values():
-      
-            # Step through each nodal load to find the largest one
-            for load in node.NodeLoads:
-              
-                # Find the largest loads in the load combination
-                if load[2] in model.LoadCombos[combo_name].factors:
-                    if load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ':
-                        if abs(load[1]*model.LoadCombos[combo_name].factors[load[2]]) > max_pt_load:
-                            max_pt_load = abs(load[1]*model.LoadCombos[combo_name].factors[load[2]])
-                    else:
-                        if abs(load[1]*model.LoadCombos[combo_name].factors[load[2]]) > max_moment:
-                            max_moment = abs(load[1]*model.LoadCombos[combo_name].factors[load[2]])
-    
-        # Step through each member
-        for member in model.Members.values():
-      
-            # Step through each member point load
-            for load in member.PtLoads:
-                
-                # Find and store the largest point load and moment in the load combination
-                if load[3] in model.LoadCombos[combo_name].factors:
-          
-                    if (load[0] == 'Fx' or load[0] == 'Fy' or load[0] == 'Fz'
-                    or  load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ'):
-                        if abs(load[1]*model.LoadCombos[combo_name].factors[load[3]]) > max_pt_load:
-                            max_pt_load = abs(load[1]*model.LoadCombos[combo_name].factors[load[3]])
-                    else:
-                        if abs(load[1]*model.LoadCombos[combo_name].factors[load[3]]) > max_moment:
-                            max_moment = abs(load[1]*model.LoadCombos[combo_name].factors[load[3]])
-      
-            # Step through each member distributed load
-            for load in member.DistLoads:
-        
-                #Find and store the largest distributed load in the load combination
-                if load[5] in model.LoadCombos[combo_name].factors:
-          
-                    if abs(load[1]*model.LoadCombos[combo_name].factors[load[5]]) > max_dist_load:
-                        max_dist_load = abs(load[1]*model.LoadCombos[combo_name].factors[load[5]])
-                    if abs(load[2]*model.LoadCombos[combo_name].factors[load[5]]) > max_dist_load:
-                        max_dist_load = abs(load[2]*model.LoadCombos[combo_name].factors[load[5]])
-      
-        # Step through each plate
-        for plate in model.Plates.values():
-      
-            # Step through each plate load
-            for load in plate.pressures:
-        
-                if load[1] in model.LoadCombos[combo_name].factors:
-                    if abs(load[0]*model.LoadCombos[combo_name].factors[load[1]]) > max_area_load:
-                        max_area_load = abs(load[0]*model.LoadCombos[combo_name].factors[load[1]])
-      
-        # Step through each quad
-        for quad in model.Quads.values():
-      
-            # Step through each plate load
-            for load in quad.pressures:
-        
-                # Check to see if the load case is in the requested load combination
-                if load[1] in model.LoadCombos[combo_name].factors:
-                    if abs(load[0]*model.LoadCombos[combo_name].factors[load[1]]) > max_area_load:
-                        max_area_load = abs(load[0]*model.LoadCombos[combo_name].factors[load[1]])
-      
-    # Behavior if case has been specified
-    else:
-        
-        # Step through each node
-        for node in model.Nodes.values():
-      
-            # Step through each nodal load to find the largest one
-            for load in node.NodeLoads:
-              
-                # Find the largest loads in the load case
-                if load[2] == case:
-                    if load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ':
-                        if abs(load[1]) > max_pt_load:
-                            max_pt_load = abs(load[1])
-                    else:
-                        if abs(load[1]) > max_moment:
-                            max_moment = abs(load[1])
-      
-        # Step through each member
-        for member in model.Members.values():
-      
-            # Step through each member point load
-            for load in member.PtLoads:
-              
-                # Find and store the largest point load and moment in the load case
-                if load[3] == case:
-            
-                    if (load[0] == 'Fx' or load[0] == 'Fy' or load[0] == 'Fz'
-                    or  load[0] == 'FX' or load[0] == 'FY' or load[0] == 'FZ'):
-                        if abs(load[1]) > max_pt_load:
-                            max_pt_load = abs(load[1])
-                    else:
-                        if abs(load[1]) > max_moment:
-                            max_moment = abs(load[1])
-        
-            # Step through each member distributed load
-            for load in member.DistLoads:
-          
-                # Find and store the largest distributed load in the load case
-                if load[5] == case:
-            
-                    if abs(load[1]) > max_dist_load:
-                        max_dist_load = abs(load[1])
-                    if abs(load[2]) > max_dist_load:
-                        max_dist_load = abs(load[2])
-            
-            # Step through each plate
-            for plate in model.Plates.values():
-          
-                # Step through each plate load
-                for load in plate.pressures:
-          
-                    if load[1] == case:
-            
-                        if abs(load[0]) > max_area_load:
-                            max_area_load = abs(load[0])
-          
-        # Step through each quad
-        for quad in model.Quads.values():
-      
-            # Step through each plate load
-            for load in quad.pressures:
-        
-                if load[1] == case:
-          
-                    if abs(load[0]) > max_area_load:
-                        max_area_load = abs(load[0])
-        
-    # Return the maximum loads in the load combination or load case
-    return max_pt_load, max_moment, max_dist_load, max_area_load
