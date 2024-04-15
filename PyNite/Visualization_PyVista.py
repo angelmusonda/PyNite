@@ -236,24 +236,27 @@ class Renderer:
 
             # Plot each node in the model
             for node in self.model.Nodes.values():
-                self.plot_node(node, self.annotation_size, color)
+                self.plot_node(node, color)
             
             # Plot each auxiliary node in the model
             for aux_node in self.model.AuxNodes.values():
-                self.plot_node(aux_node, self.annotation_size, color)
+                self.plot_node(aux_node, color)
         
         # Render node labels
         label_points = [[node.X, node.Y, node.Z] for node in self.model.Nodes.values()]
         labels = [node.name for node in self.model.Nodes.values()]
         
-        self.plotter.add_point_labels(label_points, labels, italic=False, bold=False, font_size=24, text_color='grey', font_family=None, shadow=False, show_points=True, point_color=None, point_size=None, name=None, shape_color=None, shape=None, fill_shape=True, margin=3, shape_opacity=1.0, pickable=False, render_points_as_spheres=True, tolerance=0.001, reset_camera=None, always_visible=False, render=True)
+        self.plotter.add_point_labels(label_points, labels, bold=False, text_color='black', show_points=False, shape=None, render_points_as_spheres=False)
 
-        # Render the springs
-        for spring in self.model.Springs.values():
-            self.plot_spring(spring, self.annotation_size, 'grey')
-        
-        # Render the spring labels
-        self.plotter.add_point_labels(self._spring_label_points, self._spring_labels, text_color='black', bold=False, shape=None)
+        # Check if there are springs in the model
+        if self.model.Springs:
+
+            # Render the springs
+            for spring in self.model.Springs.values():
+                self.plot_spring(spring, self.annotation_size, 'grey')
+            
+            # Render the spring labels
+            self.plotter.add_point_labels(self._spring_label_points, self._spring_labels, text_color='black', bold=False, shape=None, render_points_as_spheres=False)
         
         # Render the members
         for member in self.model.Members.values():
@@ -282,23 +285,27 @@ class Renderer:
             # _DeformedShape(self.model, self.deformed_scale, self.annotation_size, self.combo_name, self.render_nodes, self.theme)
 
         # Render the loads if requested
-        self._calc_max_loads()
-        # if (self.combo_name != None or self.case != None) and self.render_loads != False:
-        #     _RenderLoads(self.model, renderer, self.annotation_size, self.combo_name, self.case, self.theme)
+        if (self.combo_name != None or self.case != None) and self.render_loads != False:
+
+            # Plot the loads
+            self.plot_loads()
+
+            # Plot the load labels
+            self.plotter.add_point_labels(self._load_label_points, self._load_labels, bold=False, text_color='green', show_points=False, shape=None, render_points_as_spheres=False)
         
         # Render the plates and quads, if present
         if self.model.Quads or self.model.Plates:
             self.plot_plates(self.deformed_shape, self.deformed_scale, self.color_map, self.combo_name)
         
         # Determine whether to show or hide the scalar bar
-        if self._scalar_bar != True:
-            self.plotter.scalar_bar.VisibilityOff()
+        # if self._scalar_bar == False:
+        #     self.plotter.scalar_bar.VisibilityOff()
             
         # Reset the camera if requested by the user
         if reset_camera:
             self.plotter.reset_camera()
     
-    def plot_node(self, node, size, color='grey'):
+    def plot_node(self, node, color='grey'):
         """Adds a node to the plotter
 
         :param node: node
@@ -316,127 +323,155 @@ class Renderer:
             
             # Create a cube using PyVista
             self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y, node.Z),
-                                          x_length=size*2,
-                                          y_length=size*2,
-                                          z_length=size*2))
+                                          x_length=self.annotation_size*2,
+                                          y_length=self.annotation_size*2,
+                                          z_length=self.annotation_size*2),
+                                  color=color)
         
         # Check for a pinned support
         elif node.support_DX and node.support_DY and node.support_DZ and not node.support_RX and not node.support_RY and not node.support_RZ:
             
             # Create a cone using PyVista's Cone function
-            self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y-size, node.Z),
+            self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y - self.annotation_size, node.Z),
                                           direction=(0, 1, 0),
-                                          height=size*2,
-                                          radius=size*2))
+                                          height=self.annotation_size*2,
+                                          radius=self.annotation_size*2),
+                                  color=color)
 
         # Other support conditions
         else:
 
             # Generate a sphere for the node
-            #sphere = pv.Sphere(center=(X, Y, Z), radius=size/2)
-            #self.plotter.add_mesh(sphere, name='Node: '+node.name)
+            sphere = pv.Sphere(center=(X, Y, Z), radius=0.4*self.annotation_size)
+            self.plotter.add_mesh(sphere, name='Node: '+node.name, color=color)
             
             # Restrained against X translation
             if node.support_DX:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X-size, node.Y, node.Z),
-                                              (node.X+size, node.Y, node.Z)))
+                self.plotter.add_mesh(pv.Line((node.X - self.annotation_size, node.Y, node.Z),
+                                              (node.X + self.annotation_size, node.Y, node.Z)),
+                                      color=color)
 
                 # Cones at both ends
-                self.plotter.add_mesh(pv.Cone(center=(node.X-size, node.Y, node.Z),
-                                        direction=(1, 0, 0),
-                                        height=size*0.6,
-                                        radius=size*0.3))
-                self.plotter.add_mesh(pv.Cone(center=(node.X+size, node.Y, node.Z),
-                                        direction=(-1, 0, 0),
-                                        height=size*0.6,
-                                        radius=size*0.3))
+                self.plotter.add_mesh(pv.Cone(center=(node.X - self.annotation_size, node.Y,
+                                                      node.Z),
+                                              direction=(1, 0, 0), height=self.annotation_size*0.6,
+                                              radius=self.annotation_size*0.3),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cone(center=(node.X + self.annotation_size, node.Y,
+                                                      node.Z),
+                                              direction=(-1, 0, 0),
+                                              height=self.annotation_size*0.6,
+                                              radius=self.annotation_size*0.3),
+                                      color=color)
             
             # Restrained against Y translation
             if node.support_DY:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X, node.Y-size, node.Z),
-                                              (node.X, node.Y+size, node.Z)))
+                self.plotter.add_mesh(pv.Line((node.X, node.Y - self.annotation_size, node.Z),
+                                              (node.X, node.Y + self.annotation_size, node.Z)),
+                                      color=color)
 
                 # Cones at both ends
-                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y-size, node.Z),
-                                              direction=(0, 1, 0),
-                                              height=size*0.6,
-                                              radius=size*0.3))
-                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y+size, node.Z),
-                                              direction=(0, -1, 0),
-                                              height=size*0.6,
-                                              radius=size*0.3))
+                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y - self.annotation_size,
+                                                      node.Z), direction=(0, 1, 0),
+                                                      height=self.annotation_size*0.6,
+                                                      radius=self.annotation_size*0.3),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y + self.annotation_size,
+                                                      node.Z),
+                                                      direction=(0, -1, 0),
+                                                      height=self.annotation_sizesize*0.6,
+                                                      radius=self.annotation_size*0.3),
+                                      color=color)
             
             # Restrained against Z translation
             if node.support_DZ:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X, node.Y, node.Z-size),
-                                              (node.X, node.Y, node.Z+size)))
+                self.plotter.add_mesh(pv.Line((node.X, node.Y, node.Z-self.annotation_size),
+                                              (node.X, node.Y, node.Z+self.annotation_size)),
+                                      color=color)
 
                 # Cones at both ends
-                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y, node.Z-size),
+                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y, node.Z-self.annotation_size),
                                               direction=(0, 0, 1),
-                                              height=size*0.6,
-                                              radius=size*0.3))
-                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y, node.Z+size),
+                                              height=self.annotation_size*0.6,
+                                              radius=self.annotation_size*0.3),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cone(center=(node.X, node.Y, node.Z+self.annotation_size),
                                               direction=(0, 0, -1),
-                                              height=size*0.6,
-                                              radius=size*0.3))
+                                              height=self.annotation_size*0.6,
+                                              radius=self.annotation_size*0.3),
+                                      color=color)
             
             # Restrained against X rotation
             if node.support_RX:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X-1.6*size, node.Y, node.Z),
-                                              (node.X+1.6*size, node.Y, node.Z)))
+                self.plotter.add_mesh(pv.Line((node.X-1.6*self.annotation_size, node.Y, node.Z),
+                                              (node.X+1.6*self.annotation_size, node.Y, node.Z)),
+                                      color=color)
 
                 # Cubes at both ends
-                self.plotter.add_mesh(pv.Cube(center=(node.X-1.9*size, node.Y, node.Z),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
-                self.plotter.add_mesh(pv.Cube(center=(node.X+1.9 *size, node.Y, node.Z),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
+                self.plotter.add_mesh(pv.Cube(center=(node.X-1.9*self.annotation_size, node.Y,
+                                                      node.Z),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cube(center=(node.X+1.9 *self.annotation_size, node.Y,
+                                                      node.Z),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
 
             # Restrained against rotation about the Y-axis
             if node.support_RY:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X, node.Y-1.6*size, node.Z),
-                                              (node.X, node.Y+1.6*size, node.Z)))
+                self.plotter.add_mesh(pv.Line((node.X, node.Y-1.6*self.annotation_size, node.Z),
+                                              (node.X, node.Y+1.6*self.annotation_size, node.Z)),
+                                      color=color)
 
                 # Cubes at both ends
-                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y-1.9*size, node.Z),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
-                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y+1.9*size, node.Z),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
+                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y-1.9*self.annotation_size,
+                                                      node.Z),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y+1.9*self.annotation_size,
+                                                      node.Z),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
             
             # Restrained against rotation about the Z-axis
             if node.support_RZ:
 
                 # Line showing support direction
-                self.plotter.add_mesh(pv.Line((node.X, node.Y, node.Z-1.6*size),
-                                              (node.X, node.Y, node.Z+1.6*size)))
+                self.plotter.add_mesh(pv.Line((node.X, node.Y, node.Z-1.6*self.annotation_size),
+                                              (node.X, node.Y, node.Z+1.6*self.annotation_size)),
+                                      color=color)
 
                 # Cubes at both ends
-                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y, node.Z-1.9*size),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
-                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y, node.Z+1.9*size),
-                                              x_length=size*0.6,
-                                              y_length=size*0.6,
-                                              z_length=size*0.6))
+                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y,
+                                                      node.Z-1.9*self.annotation_size),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
+                self.plotter.add_mesh(pv.Cube(center=(node.X, node.Y,
+                                                      node.Z+1.9*self.annotation_size),
+                                              x_length=self.annotation_size*0.6,
+                                              y_length=self.annotation_size*0.6,
+                                              z_length=self.annotation_size*0.6),
+                                      color=color)
 
     def plot_member(self, member, theme='default'):
     
@@ -566,7 +601,7 @@ class Renderer:
         else:
             self.plotter.add_mesh(plate_polydata)
       
-    def plot_deformed_node(self, node, scale_factor):
+    def plot_deformed_node(self, node, scale_factor, color='grey'):
 
         # Calculate the node's deformed position
         newX = node.X + scale_factor * (node.DX[self.combo_name])
@@ -574,10 +609,10 @@ class Renderer:
         newZ = node.Z + scale_factor * (node.DZ[self.combo_name])
 
         # Generate a sphere source for the node in its deformed position
-        sphere = pv.Sphere(radius=0.6 * self.annotation_size, center=[newX, newY, newZ])
+        sphere = pv.Sphere(radius=0.4*self.annotation_size, center=[newX, newY, newZ])
 
         # Add the mesh to the plotter
-        self.plotter.add_mesh(sphere)
+        self.plotter.add_mesh(sphere, color=color)
   
     def plot_deformed_member(self, member, scale_factor):
         
@@ -653,12 +688,12 @@ class Renderer:
             Zj = j_node.Z + j_node.DZ[combo_name]*scale_factor
             
             # Plot a line for the deformed spring
-            self.plotter.add_mesh = pv.Line((Xi, Yi, Zi), (Xj, Yj, Zj))
+            self.plotter.add_mesh(pv.Line((Xi, Yi, Zi), (Xj, Yj, Zj)))
 
-    def plot_pt_load(self, position, direction, length, label_text=None, color=None):
+    def plot_pt_load(self, position, direction, length, label_text=None, color='green'):
 
         # Create a unit vector in the direction of the 'direction' vector
-        unitVector = direction / np.linalg.norm(direction)
+        unitVector = direction/np.linalg.norm(direction)
         
         # Determine if the load is positive or negative
         if length == 0:
@@ -673,11 +708,10 @@ class Renderer:
                               position[1] - tip_length*sign*unitVector[1]/2,
                               position[2] - tip_length*sign*unitVector[2]/2),
                               direction=(direction[0]*sign, direction[1]*sign, direction[2]*sign),
-                              height=tip_length,
-                              radius=radius)
+                              height=tip_length, radius=radius)
 
-        # Create a polydata object to store the tip
-        polydata = pv.PolyData(tip)
+        # Plot the tip
+        self.plotter.add_mesh(tip, color=color)
 
         # Create the shaft (you'll need to specify the second point)
         X_tail = position[0] - unitVector[0]*length
@@ -690,11 +724,8 @@ class Renderer:
             self._load_labels.append(label_text)
             self._load_label_points.append([X_tail, Y_tail, Z_tail])
         
-        # Add the shaft to the polydata object
-        polydata += shaft
-        
-        # Plot the point load
-        self.plotter.add_mesh(polydata)                                
+        # Plot the shaft
+        self.plotter.add_mesh(shaft, line_width=2, color=color)                         
 
     def plot_dist_load(self, position1, position2, direction, length1, length2, label_text1, label_text2, annotation_size=5, color=None):
 
@@ -742,7 +773,7 @@ class Renderer:
             self.plot_pt_load(position, dir_dir_cos, length, label_text)
 
         # Draw a line between the first and last load arrow's tails (using cylinder here for better visualization)
-        tail_line = pv.Cylinder(radius=annotation_size / 2, height=load_length)
+        tail_line = pv.Cylinder(radius=annotation_size/2, height=load_length)
         tail_line.translate(position1 - length1 * dir_dir_cos)
         tail_line.direction = dir_dir_cos
 
@@ -755,108 +786,36 @@ class Renderer:
         elif color == 'black':
             self.mesh.set_colors([0, 0, 0])  # Black
 
-    def plot_moment(self, center, direction, radius, label_text=None, annotation_size=5, 
-                    color=None):
+    def plot_moment(self, center, direction, radius, label_text=None, color='green'):
 
-        # Find a vector perpendicular to the direction vector
-        v1 = direction / direction.magnitude()  # v1: directional unit vector
-        v2 = pv.random.unit_vector(direction=None, orthogonal_to=v1)  # v2: unit vector perpendicular to v1
+        # Convert the direction vector into a unit vector
+        v1 = direction/np.linalg.norm(direction)
 
-        # Generate an arc for the moment
-        arc = pv.Arc(center=center, radius=radius, starting_angle=0, ending_angle=180, 
-                    resolution=20, normal=v2)
+        # Find any vector perpendicular to the moment direction vector. This will serve as a
+        # vector from the center of the arc pointing to the tail of the moment arc.
+        v2 = _PerpVector(v1)
+        
+        # Generate the arc for the moment
+        arc = pv.CircularArcFromNormal(center, resolution=20, normal=v1, angle=215, polar=v2*radius)
+        
+        # Add the arc to the plot
+        self.plotter.add_mesh(arc, line_width=2, color=color)
 
         # Generate the arrow tip at the end of the arc
-        tip_length = radius / 2
-        cone_radius = radius / 8
-        tip = pv.Cone(radius=cone_radius, height=tip_length, origin=arc.points[-1])
-        tip.rotate(axis=v2, angle=90)  # Rotate for proper orientation
+        tip_length = radius/4
+        cone_radius = radius/16
+        cone_direction = -np.cross(v1, arc.center - arc.points[-1])
+        tip = pv.Cone(center=arc.points[-1], direction=cone_direction, height=tip_length,
+                      radius=cone_radius)
 
-        # Combine the moment body and tip
-        self.mesh = arc + tip
+        # Add the tip to the plot
+        self.plotter.add_mesh(tip, color=color)
 
         # Create the text label
         if label_text:
-            text_pos = center + (radius + 0.25 * annotation_size) * v2
-            label = pv.Text(text=label_text, position=text_pos, text_scale=annotation_size)
-            self.mesh.append(label)
-
-        # Set color
-        if color is None:
-            self.mesh.actor.property.color = 'green'  # Green
-        elif color == 'black':
-            self.mesh.actor.property.color = 'black'  # Black
-
-    # class VisMoment():
-    #     '''
-    #     Creates a concentrated moment for the viewer
-    #     '''
-        
-    #     def __init__(self, center, direction, radius, label_text=None, annotation_size=5, color=None):
-    #         '''
-    #         Constructor.
-        
-    #         Parameters
-    #         ----------
-    #         center : tuple
-    #           A tuple of X, Y and Z coordinates for center of the moment: (X, Y, Z).
-    #         direction : tuple
-    #           A tuple indicating the direction vector for the moment: (i, j, k).
-    #         radius : number
-    #           The radius of the moment.
-    #         tip_length : number
-    #           The height of the arrow head.
-    #         label_text : string
-    #           Text that will show up at the tail of the moment. If set to 'None' no text will be displayed.
-    #         '''
-        
-    #         # Create an append filter to store load polydata in
-    #         self.polydata = vtk.vtkAppendPolyData()
-            
-    #         # Find a vector perpendicular to the directional unit vector
-    #         v1 = direction/np.linalg.norm(direction)  # v1 = The directional unit vector for the moment
-    #         v2 = _PerpVector(v1)             # v2 = A unit vector perpendicular to v1
-    #         v3 = np.cross(v1, v2)
-    #         v3 = v3/np.linalg.norm(v3)                # v3 = A unit vector perpendicular to v1 and v2
-        
-    #         # Generate an arc for the moment
-    #         Xc, Yc, Zc = center
-    #         arc = vtk.vtkArcSource()
-    #         arc.SetCenter(Xc, Yc, Zc)
-    #         arc.SetPoint1(Xc + v2[0]*radius, Yc + v2[1]*radius, Zc + v2[2]*radius)
-    #         arc.SetPoint2(Xc + v3[0]*radius, Yc + v3[1]*radius, Zc + v3[2]*radius)
-    #         arc.SetNegative(True)
-    #         arc.SetResolution(20)
-    #         arc.Update()
-    #         self.polydata.AddInputData(arc.GetOutput())
-        
-    #         # Generate the arrow tip at the end of the arc
-    #         tip_length = radius/2
-    #         cone_radius = radius/8
-    #         tip = vtk.vtkConeSource()
-    #         tip.SetCenter(arc.GetPoint1()[0], arc.GetPoint1()[1], arc.GetPoint1()[2])
-    #         tip.SetDirection(np.cross(v1, v2))
-    #         tip.SetHeight(tip_length)
-    #         tip.SetRadius(cone_radius)
-    #         tip.Update()
-    #         self.polydata.AddInputData(tip.GetOutput())
-        
-    #         # Update the polydata one last time now that we're done appending items to it
-    #         self.polydata.Update()
-        
-    #         # Create the text label
-    #         label = vtk.vtkVectorText()
-    #         label.SetText(label_text)
-    #         lblMapper = vtk.vtkPolyDataMapper()
-    #         lblMapper.SetInputConnection(label.GetOutputPort())
-    #         self.lblActor = vtk.vtkFollower()
-    #         self.lblActor.SetMapper(lblMapper)
-    #         self.lblActor.SetScale(annotation_size, annotation_size, annotation_size)
-    #         self.lblActor.SetPosition(Xc + v3[0]*(radius + 0.25*annotation_size), \
-    #                                   Yc + v3[1]*(radius + 0.25*annotation_size), \
-    #                                   Zc + v3[2]*(radius + 0.25*annotation_size))
-    #         if color is None: self.lblActor.GetProperty().SetColor(0, 255, 0)  # Green
-    #         elif color == 'black': self.lblActor.GetProperty().SetColor(0, 0, 0)  # Black
+            text_pos = center + (radius + 0.25*self.annotation_size)*v2
+            self._load_label_points.append(text_pos)
+            self._load_labels.append(label_text)
 
     def plot_area_load(self, position0, position1, position2, position3, direction, length, label_text, annotation_size=5, theme='default'):
 
@@ -1031,12 +990,172 @@ class Renderer:
                         if abs(load[0]) > max_area_load:
                             max_area_load = abs(load[0])
             
-        # Store the maximum loads in the load combination or load case
-        self._max_pt_load = max_pt_load
-        self._max_moment = max_moment
-        self._max_dist_load = max_dist_load
-        self._max_area_load = max_area_load
+        # Return the maximum loads for the load combo or load case
+        return max_pt_load, max_moment, max_dist_load, max_area_load
 
+    def plot_loads(self):
+      
+        # Get the maximum load magnitudes that will be used to normalize the display scale
+        max_pt_load, max_moment, max_dist_load, max_area_load = self._calc_max_loads()
+        
+        # Display the requested load combination, or 'Combo 1' if no load combo or case has been
+        # specified
+        if self.case is None:
+            # Store model.LoadCombos[combo].factors under a simpler name for use below
+            load_factors = self.model.LoadCombos[self.combo_name].factors
+        else:
+            # Set up a load combination dictionary that represents the load case
+            load_factors = {self.case: 1}
+        
+        # Step through each node
+        for node in self.model.Nodes.values():
+        
+            # Step through and display each nodal load
+            for load in node.NodeLoads:
+            
+                # Determine if this load is part of the requested LoadCombo or case
+                if load[2] in load_factors:
+                
+                    # Calculate the factored value for this load and it's sign (positive or
+                    # negative)
+                    load_value = load[1]*load_factors[load[2]]
+                    if load_value != 0:
+                        sign = load_value/abs(load_value)
+                    else:
+                        sign = 1
+                    
+                    # Determine the direction of this load
+                    if load[0] == 'FX' or load[0] == 'MX': direction = (sign*1, 0, 0)
+                    elif load[0] == 'FY' or load[0] == 'MY': direction = (0, sign*1, 0)
+                    elif load[0] == 'FZ' or load[0] == 'MZ': direction = (0, 0, sign*1)
+
+                    # Display the load
+                    if load[0] in {'FX', 'FY', 'FZ'}:
+                        self.plot_pt_load((node.X, node.Y, node.Z), direction,
+                                          load_value/max_pt_load*5*self.annotation_size,
+                                          str(load_value), 'green')
+                    elif load[0] in {'MX', 'MY', 'MZ'}:
+                        self.plot_moment((node.X, node.Y, node.Z), direction, abs(load_value/max_moment)*2.5*self.annotation_size, str(load_value), 'green')
+        
+        # # Step through each member
+        # for member in model.Members.values():
+        
+        #     # Get the direction cosines for the member's local axes
+        #     dir_cos = member.T()[0:3, 0:3]
+        
+        #     # Get the starting point for the member
+        #     x_start, y_start, z_start = member.i_node.X, member.i_node.Y, member.i_node.Z
+        
+        #     # Step through each member point load
+        #     for load in member.PtLoads:
+        
+        #         # Determine if this load is part of the requested load combination
+        #         if load[3] in load_factors:
+            
+        #             # Calculate the factored value for this load and it's sign (positive or negative)
+        #             load_value = load[1]*load_factors[load[3]]
+        #             sign = load_value/abs(load_value)
+            
+        #             # Calculate the load's location in 3D space
+        #             x = load[2]
+        #             position = [x_start + dir_cos[0, 0]*x, y_start + dir_cos[0, 1]*x, z_start + dir_cos[0, 2]*x]
+            
+        #             # Display the load
+        #             if load[0] in {'Fx', 'Fy', 'Fz', 'MX', 'MY', 'MZ', 'FX', 'FY', 'FZ'}:
+        #                 ptLoad = VisPtLoad(position, load[0], load_value, max_pt_load, annotation_size)
+                    
+        #             polydata += ptLoad.polydata
+        #             renderer.add_actor(ptLoad.lblActor)
+        #             ptLoad.lblActor.camera = renderer.camera
+        
+        #     # Step through each member distributed load
+        #     for load in member.DistLoads:
+        
+        #         # Determine if this load is part of the requested load combination
+        #         if load[5] in load_factors:
+            
+        #             # Calculate the factored value for this load and it's sign (positive or negative)
+        #             w1 = load[1]*load_factors[load[5]]
+        #             w2 = load[2]*load_factors[load[5]]
+            
+        #             # Calculate the loads location in 3D space
+        #             x1 = load[3]
+        #             x2 = load[4]
+        #             position1 = [x_start + dir_cos[0, 0]*x1, y_start + dir_cos[0, 1]*x1, z_start + dir_cos[0, 2]*x1]
+        #             position2 = [x_start + dir_cos[0, 0]*x2, y_start + dir_cos[0, 1]*x2, z_start + dir_cos[0, 2]*x2]
+                    
+        #             # Display the load
+        #             if load[0] in {'Fx', 'Fy', 'Fz', 'FX', 'FY', 'FZ'}:
+        #                 distLoad = VisDistLoad(position1, position2, load[0], w1, w2, max_dist_load, annotation_size)
+                
+        #             polydata += distLoad.polydata
+        #             renderer.add_actor(distLoad.lblActors[0])
+        #             renderer.add_actor(distLoad.lblActors[1])
+        #             distLoad.lblActors[0].camera = renderer.camera
+        #             distLoad.lblActors[1].camera = renderer.camera
+        
+        # # Step through each plate
+        # for plate in list(model.Plates.values()) + list(model.Quads.values()):
+        
+        #     # Get the direction cosines for the plate's local z-axis
+        #     dir_cos = plate.T()[0:3, 0:3]
+        #     dir_cos = dir_cos[2]
+        
+        #     # Step through each plate load
+        #     for load in plate.pressures:
+        
+        #         # Determine if this load is part of the requested load combination
+        #         if load[1] in load_factors:
+            
+        #             # Calculate the factored value for this load
+        #             load_value = load[0]*load_factors[load[1]]
+                    
+        #             # Find the sign for this load. Intercept any divide by zero errors
+        #             if load[0] == 0:
+        #                 sign = 1
+        #             else:
+        #                 sign = abs(load[0])/load[0]
+            
+        #             # Find the position of the load's 4 corners
+        #             position0 = [plate.i_node.X, plate.i_node.Y, plate.i_node.Z]
+        #             position1 = [plate.j_node.X, plate.j_node.Y, plate.j_node.Z]
+        #             position2 = [plate.m_node.X, plate.m_node.Y, plate.m_node.Z]
+        #             position3 = [plate.n_node.X, plate.n_node.Y, plate.n_node.Z]
+            
+        #             # Create an area load and get its data
+        #             area_load = VisAreaLoad(position0, position1, position2, position3, dir_cos*sign, abs(load_value), max_area_load, annotation_size, theme)
+                    
+        #             polydata += area_load.polydata
+            
+        #             # Add the load label
+        #             renderer.add_actor(area_load.label_actor)
+            
+        #             # Set the text to follow the camera as the user interacts
+        #             area_load.label_actor.camera = renderer.camera
+            
+        # # Set up an actor for the loads
+        # load_actor = pv.PolyData(polydata)
+        
+        # # Colorize the loads
+        # if theme == 'default':
+        #     load_actor['colors'] = np.array([[0, 255, 0]]) / 255.0  # Green
+        # elif theme == 'print':
+        #     load_actor['colors'] = np.array([[255, 0, 0]]) / 255.0  # Red
+
+        # # Add the load actor to the renderer
+        # renderer.add_actor(load_actor)
+        
+        # # Plot the polygons
+        # polygon_actor = pv.PolyData(polygon_polydata)
+
+        # # Set the color of the area load polygons
+        # if theme == 'default':
+        #     polygon_actor['colors'] = np.array([[0, 255, 0]]) / 255.0  # Green
+        # elif theme == 'print':
+        #     polygon_actor['colors'] = np.array([[255, 0, 0]]) / 255.0  # Red
+        # renderer.add_actor(polygon_actor)
+
+#%%
     # class VisAreaLoad():
     #     '''
     #     Creates an area load for the viewer
@@ -1189,250 +1308,3 @@ def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
             # Prevent divide by zero errors for nodes with no contour values
             if node.contour != []:
                 node.contour = sum(node.contour)/len(node.contour)
-
-# def _RenderLoads(model, renderer, annotation_size, combo_name, case, theme='default'):
-
-#     # Create an append filter to store all the polydata in. This will allow us to use fewer actors to
-#     # display all the loads, which will greatly improve rendering speed as the user interacts. VTK
-#     # becomes very slow when a large number of actors are used.
-#     polydata = vtk.vtkAppendPolyData()
-    
-#     # Polygons are treated as cells in VTK. Create a cell array to store all the area load polygons
-#     # in. We'll also create a list of points to store the polygon points in. The polydata for these
-#     # polygons will be stored separately from the other load data.
-#     polygons = vtk.vtkCellArray()
-#     polygon_points = vtk.vtkPoints()
-#     polygon_polydata = vtk.vtkPolyData()
-    
-#     # Get the maximum load magnitudes that will be used to normalize the display scale
-#     max_pt_load, max_moment, max_dist_load, max_area_load = _max_loads(model, combo_name, case)
-    
-#     # Display the requested load combination, or 'Combo 1' if no load combo or case has been
-#     # specified
-#     if case == None:
-#         # Store model.LoadCombos[combo].factors under a simpler name for use below
-#         load_factors = model.LoadCombos[combo_name].factors
-#     else:
-#         # Set up a load combination dictionary that represents the load case
-#         load_factors = {case: 1}
-    
-#     # Step through each node
-#     for node in model.Nodes.values():
-    
-#         # Step through and display each nodal load
-#         for load in node.NodeLoads:
-          
-#             # Determine if this load is part of the requested LoadCombo or case
-#             if load[2] in load_factors:
-              
-#                 # Calculate the factored value for this load and it's sign (positive or negative)
-#                 load_value = load[1]*load_factors[load[2]]
-#                 if load_value != 0:
-#                     sign = load_value/abs(load_value)
-#                 else:
-#                     sign = 1
-                
-#                 # Display the load
-#                 if load[0] == 'FX':
-#                     ptLoad = VisPtLoad((node.X - 0.6*annotation_size*sign, node.Y, node.Z), [1, 0, 0], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'FY':
-#                     ptLoad = VisPtLoad((node.X, node.Y - 0.6*annotation_size*sign, node.Z), [0, 1, 0], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'FZ':
-#                     ptLoad = VisPtLoad((node.X, node.Y, node.Z - 0.6*annotation_size*sign), [0, 0, 1], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MX':
-#                     ptLoad = VisMoment((node.X, node.Y, node.Z), (1*sign, 0, 0), abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MY':
-#                     ptLoad = VisMoment((node.X, node.Y, node.Z), (0, 1*sign, 0), abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MZ':
-#                     ptLoad = VisMoment((node.X, node.Y, node.Z), (0, 0, 1*sign), abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-                
-#                 polydata.AddInputData(ptLoad.polydata.GetOutput())
-#                 renderer.AddActor(ptLoad.lblActor)
-#                 ptLoad.lblActor.SetCamera(renderer.GetActiveCamera())
-    
-#     # Step through each member
-#     for member in model.Members.values():
-    
-#         # Get the direction cosines for the member's local axes
-#         dir_cos = member.T()[0:3, 0:3]
-      
-#         # Get the starting point for the member
-#         x_start, y_start, z_start = member.i_node.X, member.i_node.Y, member.i_node.Z
-      
-#         # Step through each member point load
-#         for load in member.PtLoads:
-      
-#             # Determine if this load is part of the requested load combination
-#             if load[3] in load_factors:
-        
-#                 # Calculate the factored value for this load and it's sign (positive or negative)
-#                 load_value = load[1]*load_factors[load[3]]
-#                 sign = load_value/abs(load_value)
-          
-#                 # Calculate the load's location in 3D space
-#                 x = load[2]
-#                 position = [x_start + dir_cos[0, 0]*x, y_start + dir_cos[0, 1]*x, z_start + dir_cos[0, 2]*x]
-          
-#                 # Display the load
-#                 if load[0] == 'Fx':
-#                     ptLoad = VisPtLoad(position, dir_cos[0, :], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'Fy':
-#                     ptLoad = VisPtLoad(position, dir_cos[1, :], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'Fz':
-#                     ptLoad = VisPtLoad(position, dir_cos[2, :], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'Mx':
-#                     ptLoad = VisMoment(position, dir_cos[0, :]*sign, abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'My':
-#                     ptLoad = VisMoment(position, dir_cos[1, :]*sign, abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'Mz':
-#                     ptLoad = VisMoment(position, dir_cos[2, :]*sign, abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'FX':
-#                     ptLoad = VisPtLoad(position, [1, 0, 0], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'FY':
-#                     ptLoad = VisPtLoad(position, [0, 1, 0], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'FZ':
-#                     ptLoad = VisPtLoad(position, [0, 0, 1], load_value/max_pt_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MX':
-#                     ptLoad = VisMoment(position, [1*sign, 0, 0], abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MY':
-#                     ptLoad = VisMoment(position, [0, 1*sign, 0], abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-#                 elif load[0] == 'MZ':
-#                     ptLoad = VisMoment(position, [0, 0, 1*sign], abs(load_value)/max_moment*2.5*annotation_size, '{:.3g}'.format(load_value), annotation_size)
-            
-#                 polydata.AddInputData(ptLoad.polydata.GetOutput())
-#                 renderer.AddActor(ptLoad.lblActor)
-#                 ptLoad.lblActor.SetCamera(renderer.GetActiveCamera())
-    
-#         # Step through each member distributed load
-#         for load in member.DistLoads:
-    
-#             # Determine if this load is part of the requested load combination
-#             if load[5] in load_factors:
-        
-#                 # Calculate the factored value for this load and it's sign (positive or negative)
-#                 w1 = load[1]*load_factors[load[5]]
-#                 w2 = load[2]*load_factors[load[5]]
-          
-#                 # Calculate the loads location in 3D space
-#                 x1 = load[3]
-#                 x2 = load[4]
-#                 position1 = [x_start + dir_cos[0, 0]*x1, y_start + dir_cos[0, 1]*x1, z_start + dir_cos[0, 2]*x1]
-#                 position2 = [x_start + dir_cos[0, 0]*x2, y_start + dir_cos[0, 1]*x2, z_start + dir_cos[0, 2]*x2]
-                
-#                 # Display the load
-#                 if load[0] == 'Fx':
-#                     distLoad = VisDistLoad(position1, position2, dir_cos[0, :], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-#                 elif load[0] == 'Fy':
-#                     distLoad = VisDistLoad(position1, position2, dir_cos[1, :], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-#                 elif load[0] == 'Fz':
-#                     distLoad = VisDistLoad(position1, position2, dir_cos[2, :], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-#                 elif load[0] == 'FX':
-#                     distLoad = VisDistLoad(position1, position2, [1, 0, 0], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-#                 elif load[0] == 'FY':
-#                     distLoad = VisDistLoad(position1, position2, [0, 1, 0], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-#                 elif load[0] == 'FZ':
-#                     distLoad = VisDistLoad(position1, position2, [0, 0, 1], w1/max_dist_load*5*annotation_size, w2/max_dist_load*5*annotation_size, '{:.3g}'.format(w1), '{:.3g}'.format(w2), annotation_size)
-               
-#                 polydata.AddInputData(distLoad.polydata.GetOutput())
-#                 renderer.AddActor(distLoad.lblActors[0])
-#                 renderer.AddActor(distLoad.lblActors[1])
-#                 distLoad.lblActors[0].SetCamera(renderer.GetActiveCamera())
-#                 distLoad.lblActors[1].SetCamera(renderer.GetActiveCamera())   
-    
-#     # Step through each plate
-#     i = 0
-#     for plate in list(model.Plates.values()) + list(model.Quads.values()):
-    
-#         # Get the direction cosines for the plate's local z-axis
-#         dir_cos = plate.T()[0:3, 0:3]
-#         dir_cos = dir_cos[2]
-      
-#         # Step through each plate load
-#         for load in plate.pressures:
-      
-#             # Determine if this load is part of the requested load combination
-#             if load[1] in load_factors:
-        
-#                 # Calculate the factored value for this load
-#                 load_value = load[0]*load_factors[load[1]]
-                
-#                 # Find the sign for this load. Intercept any divide by zero errors
-#                 if load[0] == 0:
-#                     sign = 1
-#                 else:
-#                     sign = abs(load[0])/load[0]
-          
-#                 # Find the position of the load's 4 corners
-#                 position0 = [plate.i_node.X, plate.i_node.Y, plate.i_node.Z]
-#                 position1 = [plate.j_node.X, plate.j_node.Y, plate.j_node.Z]
-#                 position2 = [plate.m_node.X, plate.m_node.Y, plate.m_node.Z]
-#                 position3 = [plate.n_node.X, plate.n_node.Y, plate.n_node.Z]
-          
-#                 # Create an area load and get its data
-#                 area_load = VisAreaLoad(position0, position1, position2, position3, dir_cos*sign, abs(load_value)/max_area_load*5*annotation_size, '{:.3g}'.format(load_value), annotation_size, theme)
-          
-#                 # Add the area load's arrows to the overall load polydata
-#                 polydata.AddInputData(area_load.polydata.GetOutput())
-          
-#                 # Add the 4 points at the corners of this area load to the list of points
-#                 polygon_points.InsertNextPoint(area_load.p0[0], area_load.p0[1], area_load.p0[2])
-#                 polygon_points.InsertNextPoint(area_load.p1[0], area_load.p1[1], area_load.p1[2])
-#                 polygon_points.InsertNextPoint(area_load.p2[0], area_load.p2[1], area_load.p2[2])
-#                 polygon_points.InsertNextPoint(area_load.p3[0], area_load.p3[1], area_load.p3[2])
-          
-#                 # Create a polygon based on the four points we just defined.
-#                 # The 1st number in `SetId()` is the local point id
-#                 # The 2nd number in `SetId()` is the global point id
-#                 polygon = vtk.vtkPolygon()
-#                 polygon.GetPointIds().SetNumberOfIds(4)
-#                 polygon.GetPointIds().SetId(0, i*4)
-#                 polygon.GetPointIds().SetId(1, i*4 + 1)
-#                 polygon.GetPointIds().SetId(2, i*4 + 2)
-#                 polygon.GetPointIds().SetId(3, i*4 + 3)
-          
-#                 # Add the polygon to the list of polygons
-#                 polygons.InsertNextCell(polygon)
-                
-#                 # Add the load label
-#                 renderer.AddActor(area_load.label_actor)
-          
-#                 # Set the text to follow the camera as the user interacts
-#                 area_load.label_actor.SetCamera(renderer.GetActiveCamera())
-          
-#                 # `i` keeps track of the next polygon's ID. We've just added a polygon, so `i` needs to
-#                 # go up 1.
-#                 i += 1
-        
-#                 # Create polygon polydata from all the points and polygons we just defined
-#                 polygon_polydata.SetPoints(polygon_points)
-#                 polygon_polydata.SetPolys(polygons)
-    
-#     # Set up an actor and mapper for the loads
-#     load_mapper = vtk.vtkPolyDataMapper()
-#     load_mapper.SetInputConnection(polydata.GetOutputPort())
-#     load_actor = vtk.vtkActor()
-#     load_actor.SetMapper(load_mapper)
-
-#     # Colorize the loads
-#     if theme == 'default':
-#         load_actor.GetProperty().SetColor(0/255, 255/255, 0/255)  # Green
-#     elif theme == 'print':
-#         load_actor.GetProperty().SetColor(255/255, 0/255, 0/255)  # Red
-
-#     # Add the load actor to the renderer
-#     renderer.AddActor(load_actor)
-    
-#     # Set up an actor and a mapper for the area load polygons
-#     polygon_mapper = vtk.vtkPolyDataMapper()
-#     polygon_mapper.SetInputData(polygon_polydata)
-#     polygon_actor = vtk.vtkActor()
-
-#     # polygon_actor.GetProperty().SetOpacity(0.5)      # 50% opacity
-#     polygon_actor.SetMapper(polygon_mapper)
-#     renderer.AddActor(polygon_actor)
-    
-#     # Set the color of the area load polygons
-#     if theme == 'default':
-#         polygon_actor.GetProperty().SetColor(0/255, 255/255, 0/255)  # Green
-#     elif theme == 'print':
-#         polygon_actor.GetProperty().SetColor(255/255, 0/255, 0/255)  # Red
