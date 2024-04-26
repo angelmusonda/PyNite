@@ -5,6 +5,7 @@ import warnings
 from IPython.display import Image
 import numpy as np
 import pyvista as pv
+import math
 
 class Renderer:
     """Used to render finite element models.
@@ -193,10 +194,10 @@ class Renderer:
 
         # Show the plotter for interaction
         if interact == True:
-            self.plotter.show(auto_close=False)
-
+            self.plotter.show(title='Pynite - Simple Finite Element Anlaysis for Python', auto_close=False)
+        
         # Render the model (code execution will pause here until the user closes the window)
-        self.plotter.show(title='Pynite - Simple Finite Element Analysis for Python', window_size=None, interactive=True, auto_close=None, interactive_update=False, full_screen=None, screenshot=filepath, return_img=False, cpos=None, jupyter_backend=None, return_viewer=False, return_cpos=None, before_close_callback=None)
+        self.plotter.show(title='Pynite - Simple Finite Element Analysis for Python', screenshot=filepath, jupyter_backend='static')
 
     def update(self, reset_camera=True):
         """
@@ -721,7 +722,7 @@ class Renderer:
         
         # Save the data necessary to create the load's label
         if label_text is not None:
-            self._load_labels.append(label_text)
+            self._load_labels.append(sig_fig_round(label_text, 3))
             self._load_label_points.append([X_tail, Y_tail, Z_tail])
         
         # Plot the shaft
@@ -1015,7 +1016,7 @@ class Renderer:
                     if load[0] in {'FX', 'FY', 'FZ'}:
                         self.plot_pt_load((node.X, node.Y, node.Z), direction,
                                           load_value/max_pt_load*5*self.annotation_size,
-                                          str(load_value), 'green')
+                                          load_value, 'green')
                     elif load[0] in {'MX', 'MY', 'MZ'}:
                         self.plot_moment((node.X, node.Y, node.Z), direction, abs(load_value/max_moment)*2.5*self.annotation_size, str(load_value), 'green')
         
@@ -1044,11 +1045,11 @@ class Renderer:
             
                     # Display the load
                     if load[0] == 'Fx':
-                        self.plot_pt_load(position, dir_cos[0, :], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, dir_cos[0, :], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'Fy':
-                        self.plot_pt_load(position, dir_cos[1, :], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, dir_cos[1, :], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'Fz':
-                        self.plot_pt_load(position, dir_cos[2, :], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, dir_cos[2, :], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'Mx':
                         self.plot_moment(position, dir_cos[0, :]*sign, abs(load_value)/max_moment*2.5*self.annotation_size, str(load_value))
                     elif load[0] == 'My':
@@ -1056,11 +1057,11 @@ class Renderer:
                     elif load[0] == 'Mz':
                         self.plot_moment(position, dir_cos[2, :]*sign, abs(load_value)/max_moment*2.5*self.annotation_size, str(load_value))
                     elif load[0] == 'FX':
-                        self.plot_pt_load(position, [1, 0, 0], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, [1, 0, 0], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'FY':
-                        self.plot_pt_load(position, [0, 1, 0], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, [0, 1, 0], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'FZ':
-                        self.plot_pt_load(position, [0, 0, 1], load_value/max_pt_load*5*self.annotation_size, str(load_value))
+                        self.plot_pt_load(position, [0, 0, 1], load_value/max_pt_load*5*self.annotation_size, load_value)
                     elif load[0] == 'MX':
                         self.plot_moment(position, [1*sign, 0, 0], abs(load_value)/max_moment*2.5*self.annotation_size, str(load_value))
                     elif load[0] == 'MY':
@@ -1096,7 +1097,7 @@ class Renderer:
                         elif load[0] == 'FZ': direction = [0, 0, 1]
 
                         # Plot the distributed load
-                        self.plot_dist_load(position1, position2, direction, w1/max_dist_load*5*self.annotation_size, w2/max_dist_load*5*self.annotation_size, str(w1), str(w2), self.annotation_size, 'green')
+                        self.plot_dist_load(position1, position2, direction, w1/max_dist_load*5*self.annotation_size, w2/max_dist_load*5*self.annotation_size, str(sig_fig_round(w1, 3)), str(sig_fig_round(w2, 3)), 'green')
         
         # Step through each plate
         for plate in list(self.model.Plates.values()) + list(self.model.Quads.values()):
@@ -1127,7 +1128,7 @@ class Renderer:
                     position3 = [plate.n_node.X, plate.n_node.Y, plate.n_node.Z]
             
                     # Create an area load and get its data
-                    self.plot_area_load(position0, position1, position2, position3, dir_cos*sign, load_value/max_area_load*5*self.annotation_size, str(round_to_sig_figs(load_value, 3)), color='green')
+                    self.plot_area_load(position0, position1, position2, position3, dir_cos*sign, load_value/max_area_load*5*self.annotation_size, str(sig_fig_round(load_value, 3)), color='green')
 
 def _PerpVector(v):
     '''
@@ -1240,43 +1241,17 @@ def _PrepContour(model, stress_type='Mx', combo_name='Combo 1'):
             if node.contour != []:
                 node.contour = sum(node.contour)/len(node.contour)
 
-def round_to_sig_figs(number, sig_figs):
-
-    """Rounds a number to a given number of significant figures.
-
-    :param number: The number to round.
-    :type number: float
-    :param sig_figs: The number of significant figures to keep.
-    :type sig_figs: int
-    :raises ValueError: Significant figures cannot be negative.
-    :return: The rounded number.
-    :rtype: float
-    """
-
-    if sig_figs < 0:
-        raise ValueError("Significant figures cannot be negative")
-
+def sig_fig_round(number, sig_figs):
     if number == 0:
-        return 0  # Special case for zero
+        return 0
 
-    # Count the leading zeros (if any)
-    leading_zeros = 0
-    float_str = str(abs(number))
-    for char in float_str:
-        if char == '0':
-            leading_zeros += 1
-        else:
-            break
+    # Calculate the magnitude of the number
+    magnitude = math.floor(math.log10(abs(number)))
 
-    # Count the exponent (if scientific notation is used)
-    exponent = 0
-    if 'e' in float_str:
-        exponent = int(float_str.split('e')[-1])
+    # Calculate the number of decimal places to round to
+    decimal_places = sig_figs - 1 - magnitude
 
-    # Adjust for leading zeros and exponent
-    effective_sig_figs = sig_figs - leading_zeros - (exponent if exponent < 0 else 0)
-
-    # Round the number using the built-in round function
-    rounded_number = round(number, effective_sig_figs)
+    # Round the number to the specified number of decimal places
+    rounded_number = round(number, decimal_places)
 
     return rounded_number
