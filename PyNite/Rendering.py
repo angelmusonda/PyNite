@@ -7,6 +7,14 @@ import numpy as np
 import pyvista as pv
 import math
 
+# Allow for 3D interaction within jupyter notebook using trame
+try:
+    pv.global_theme.trame.jupyter_extension_enabled = True
+except:
+    # Ignore the exception that is produced if we are not running the code via jupyter
+    pass
+pv.set_jupyter_backend('trame')
+
 class Renderer:
     """Used to render finite element models.
     """
@@ -154,7 +162,7 @@ class Renderer:
     def scalar_bar_text_size(self, text_size):
         self._scalar_bar_text_size = text_size
 
-    def render_model(self, interact=True, reset_camera=True):
+    def render_model(self, reset_camera=True):
         """
         Renders the model in a window
 
@@ -171,22 +179,17 @@ class Renderer:
         self.update(reset_camera)
 
         # Render the model (code execution will pause here until the user closes the window)
-        self.plotter.show(title='Pynite - Simple Finite Element Analysis for Python', window_size=None, interactive=True, auto_close=None, interactive_update=False, full_screen=None, screenshot=False, return_img=False, cpos=None, jupyter_backend=None, return_viewer=False, return_cpos=None, before_close_callback=None)
+        self.plotter.show(title='Pynite - Simple Finite Element Analysis for Python')
 
-    def screenshot(self, filepath='console', interact=True, reset_camera=True):
-        """
-        Renders the model in a window. When the window is closed a screenshot is captured.
+    def screenshot(self, filepath='./Pynite_Image.png', interact=True, reset_camera=True):
+        """Saves a screenshot of the rendered model. Press `q` to capture the screenshot after positioning the view. Pressing the close button in the corner of the window will ignore the positioning.
 
-        Parameters
-        ----------
-        filepath : string
-            Sends a screenshot to the specified filepath. The screenshot will be taken when the
-            user closes out of the render window.
-        interact : bool
-            Suppresses interacting with the window if set to `False`. This can be used to capture a
-            screenshot without pausing the program for the user to interact. Default is `True`.
-        reset_camera : bool
-            Resets the camera if set to `True`. Default is `True`.
+        :param filepath: The filepath to write the image to. When set to 'jupyter', the resulting plot is placed inline in a jupyter notebook. Defaults to 'jupyter'.
+        :type filepath: str, optional
+        :param interact: When set to `True` the user can set the scene before the screenshot is taken. Once the scene is set, press 'q' to take the screenshot. Defaults to `True`
+        :type interact: bool, optional
+        :param reset_camera: Resets the plotter's camera. Defaults to `True`
+        :type reset_camera: bool, optional
         """
 
         # Update the plotter with the latest geometry
@@ -194,10 +197,15 @@ class Renderer:
 
         # Show the plotter for interaction
         if interact == True:
-            self.plotter.show(title='Pynite - Simple Finite Element Anlaysis for Python', auto_close=False)
-        
-        # Render the model (code execution will pause here until the user closes the window)
-        self.plotter.show(title='Pynite - Simple Finite Element Analysis for Python', screenshot=filepath, jupyter_backend='static')
+            # Use `q` for `quit` to take the screenshot. The window will not close until the `X` in
+            # the corner of the window is hit.
+            self.plotter.show(title='Pynite - Simple Finite Element Anlaysis for Python', screenshot=filepath)
+        else:
+            # Don't bother showing the image before capturing the screenshot
+            self.plotter.off_screen = True
+
+            # Save the screenshot
+            self.plotter.screenshot(filename=filepath)
 
     def update(self, reset_camera=True):
         """
@@ -1008,14 +1016,14 @@ class Renderer:
                         sign = 1
                     
                     # Determine the direction of this load
-                    if load[0] == 'FX' or load[0] == 'MX': direction = (sign*1, 0, 0)
-                    elif load[0] == 'FY' or load[0] == 'MY': direction = (0, sign*1, 0)
-                    elif load[0] == 'FZ' or load[0] == 'MZ': direction = (0, 0, sign*1)
+                    if load[0] == 'FX' or load[0] == 'MX': direction = (sign, 0, 0)
+                    elif load[0] == 'FY' or load[0] == 'MY': direction = (0, sign, 0)
+                    elif load[0] == 'FZ' or load[0] == 'MZ': direction = (0, 0, sign)
 
                     # Display the load
                     if load[0] in {'FX', 'FY', 'FZ'}:
                         self.plot_pt_load((node.X, node.Y, node.Z), direction,
-                                          load_value/max_pt_load*5*self.annotation_size,
+                                          abs(load_value/max_pt_load)*5*self.annotation_size,
                                           load_value, 'green')
                     elif load[0] in {'MX', 'MY', 'MZ'}:
                         self.plot_moment((node.X, node.Y, node.Z), direction, abs(load_value/max_moment)*2.5*self.annotation_size, str(load_value), 'green')
