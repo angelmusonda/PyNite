@@ -1297,7 +1297,7 @@ class FEModel3D():
             start = x1
 
         if x2 == None:
-            end = self.Members[Member].L()
+            end = self.Members[member_name].L()
         else:
             end = x2
 
@@ -1443,7 +1443,7 @@ class FEModel3D():
             raise ParameterIncompatibilityError('Time and Profile lists should have the same length')
         self.LoadProfiles[case] = LoadProfile(load_case_name=case, time=time, profile=profile)
 
-    def def_disp_profile(self, node, direction, time, profile):
+    def def_disp_profile(self, node_name, direction, time, profile):
         """
             Define a displacement profile for a specific node and direction.
 
@@ -1465,7 +1465,7 @@ class FEModel3D():
             raise ParameterIncompatibilityError('Time and Profile lists should have the same length')
         if direction not in ('DX', 'DY', 'DZ', 'RX', 'RY', 'RZ'):
             raise ValueError(f"Direction must be 'DX', 'DY', 'DZ', 'RX', 'RY', or 'RZ'. {direction} was given.")
-        self.DisplacementProfiles[node] = DisplacementProfile(node=node, direction= direction,time=time, profile=profile)
+        self.DisplacementProfiles[node_name] = DisplacementProfile(node=node_name, direction= direction,time=time, profile=profile)
         
     def K(self, combo_name='Combo 1', log=False, check_stability=True, sparse=True):
         """Returns the model's global stiffness matrix. The stiffness matrix will be returned in

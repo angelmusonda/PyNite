@@ -97,13 +97,13 @@ renderer.render_model()
 
 # ------------------------------------------------------------------------------------------------
 # Add a point load at Node C. This load will be used to define the harmonic case
-model.add_node_load("C", Direction='FX', P=3000, case='Harmonic')
+model.add_node_load("C", direction='FX', P=3000, case='Harmonic')
 
 # PyNite performs analyses on load combinations, so create one, just for this one load
 model.add_load_combo(name="Harmonic", factors={"Harmonic": 1})
 
 # Add another point load at Node C. This will be used to define the time history analysis case
-model.add_node_load("C", Direction='FX', P=100E3, case='THA')
+model.add_node_load("C", direction='FX', P=100E3, case='THA')
 
 # To define the load as a dynamic load, define a load profile
 # The load profile shows how the load varies with time
