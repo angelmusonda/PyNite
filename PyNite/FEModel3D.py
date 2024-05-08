@@ -1079,10 +1079,11 @@ class FEModel3D():
         :type magnitude: float
         :raises ValueError: _description_
         """
+            
+        # Validate the value of direction
 
-        # Validate the value of Direction
         if direction not in ('DX', 'DY', 'DZ', 'RX', 'RY', 'RZ'):
-            raise ValueError(f"Direction must be 'DX', 'DY', 'DZ', 'RX', 'RY', or 'RZ'. {direction} was given.")
+            raise ValueError(f"direction must be 'DX', 'DY', 'DZ', 'RX', 'RY', or 'RZ'. {direction} was given.")
         # Get the node
         node = self.Nodes[node_name]
 
@@ -1104,12 +1105,13 @@ class FEModel3D():
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def def_releases(self, Member, Dxi=False, Dyi=False, Dzi=False, Rxi=False, Ryi=False, Rzi=False, Dxj=False,
-                     Dyj=False, Dzj=False, Rxj=False, Ryj=False, Rzj=False):
+
+    def def_releases(self, member_name, Dxi=False, Dyi=False, Dzi=False, Rxi=False, Ryi=False, Rzi=False, Dxj=False, Dyj=False, Dzj=False, Rxj=False, Ryj=False, Rzj=False):
+
         """Defines member end realeses for a member. All member end releases will default to unreleased unless specified otherwise.
 
-        :param Member: The name of the member to have its releases modified.
-        :type Member: str
+        :param member_name: The name of the member to have its releases modified.
+        :type member_name: str
         :param Dxi: Indicates whether the member is released axially at its start. Defaults to False.
         :type Dxi: bool, optional
         :param Dyi: Indicates whether the member is released for shear in the local y-axis at its start. Defaults to False.
@@ -1137,7 +1139,7 @@ class FEModel3D():
         """
 
         # Apply the end releases to the member
-        self.Members[Member].Releases = [Dxi, Dyi, Dzi, Rxi, Ryi, Rzi, Dxj, Dyj, Dzj, Rxj, Ryj, Rzj]
+        self.Members[member_name].Releases = [Dxi, Dyi, Dzi, Rxi, Ryi, Rzi, Dxj, Dyj, Dzj, Rxj, Ryj, Rzj]     
 
         # Flag the model as unsolved
         self.solution = None
@@ -1195,14 +1197,14 @@ class FEModel3D():
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def add_node_load(self, Node, Direction, P, case='Case 1'):
+    def add_node_load(self, node_name, direction, P, case='Case 1'):
         """Adds a nodal load to the model.
 
-        :param Node: The name of the node where the load is being applied.
-        :type Node: str
-        :param Direction: The global direction the load is being applied in. Forces are `'FX'`,
+        :param node_name: The name of the node where the load is being applied.
+        :type node_name: str
+        :param direction: The global direction the load is being applied in. Forces are `'FX'`,
                           `'FY'`, and `'FZ'`. Moments are `'MX'`, `'MY'`, and `'MZ'`.
-        :type Direction: str
+        :type direction: str
         :param P: The numeric value (magnitude) of the load.
         :type P: float
         :param case: The name of the load case the load belongs to. Defaults to 'Case 1'.
@@ -1210,28 +1212,30 @@ class FEModel3D():
         :raises ValueError: Occurs when an invalid load direction was specified.
         """
 
-        # Validate the value of Direction
-        if Direction not in ('FX', 'FY', 'FZ', 'MX', 'MY', 'MZ'):
-            raise ValueError(f"Direction must be 'FX', 'FY', 'FZ', 'MX', 'MY', or 'MZ'. {Direction} was given.")
+        
+        # Validate the value of direction
+        if direction not in ('FX', 'FY', 'FZ', 'MX', 'MY', 'MZ'):
+            raise ValueError(f"direction must be 'FX', 'FY', 'FZ', 'MX', 'MY', or 'MZ'. {direction} was given.")
+
         # Add the node load to the model
-        self.Nodes[Node].NodeLoads.append((Direction, P, case))
+        self.Nodes[node_name].NodeLoads.append((direction, P, case))
 
         # Flag the model as unsolved
         self.solution = None
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def add_member_pt_load(self, Member, Direction, P, x, case='Case 1'):
+    def add_member_pt_load(self, member_name, direction, P, x, case='Case 1'):
         """Adds a member point load to the model.
 
-        :param Member: The name of the member the load is being applied to.
-        :type Member: str
-        :param Direction: The direction in which the load is to be applied. Valid values are `'Fx'`,
+        :param member_name: The name of the member the load is being applied to.
+        :type member_name: str
+        :param direction: The direction in which the load is to be applied. Valid values are `'Fx'`,
                           `'Fy'`, `'Fz'`, `'Mx'`, `'My'`, `'Mz'`, `'FX'`, `'FY'`, `'FZ'`, `'MX'`, `'MY'`, or `'MZ'`.
                           Note that lower-case notation indicates use of the beam's local
                           coordinate system, while upper-case indicates use of the model's globl
                           coordinate system.
-        :type Direction: str
+        :type direction: str
         :param P: The numeric value (magnitude) of the load.
         :type P: float
         :param x: The load's location along the member's local x-axis.
@@ -1241,30 +1245,31 @@ class FEModel3D():
         :raises ValueError: Occurs when an invalid load direction has been specified.
         """
 
-        # Validate the value of Direction
-        if Direction not in ('Fx', 'Fy', 'Fz', 'FX', 'FY', 'FZ', 'Mx', 'My', 'Mz', 'MX', 'MY', 'MZ'):
-            raise ValueError(
-                f"Direction must be 'Fx', 'Fy', 'Fz', 'FX', 'FY', FZ', 'Mx', 'My', 'Mz', 'MX', 'MY', or 'MZ'. {Direction} was given.")
 
+        # Validate the value of direction
+        if direction not in ('Fx', 'Fy', 'Fz', 'FX', 'FY', 'FZ', 'Mx', 'My', 'Mz', 'MX', 'MY', 'MZ'):
+            raise ValueError(f"direction must be 'Fx', 'Fy', 'Fz', 'FX', 'FY', FZ', 'Mx', 'My', 'Mz', 'MX', 'MY', or 'MZ'. {direction} was given.")
+        
         # Add the point load to the member
-        self.Members[Member].PtLoads.append((Direction, P, x, case))
-
+        self.Members[member_name].PtLoads.append((direction, P, x, case))
+        
         # Flag the model as unsolved
         self.solution = None
         for key in self.DynamicSolution.keys():
             self.DynamicSolution[key] = False
 
-    def add_member_dist_load(self, Member, Direction, w1, w2, x1=None, x2=None, case='Case 1'):
+    def add_member_dist_load(self, member_name, direction, w1, w2, x1=None, x2=None, case='Case 1'):
         """Adds a member distributed load to the model.
 
-        :param Member: The name of the member the load is being appied to.
-        :type Member: str
-        :param Direction: The direction in which the load is to be applied. Valid values are `'Fx'`,
+        :param member_name: The name of the member the load is being appied to.
+        :type member_name: str
+        :param direction: The direction in which the load is to be applied. Valid values are `'Fx'`,
+
                           `'Fy'`, `'Fz'`, `'FX'`, `'FY'`, or `'FZ'`.
                           Note that lower-case notation indicates use of the beam's local
                           coordinate system, while upper-case indicates use of the model's globl
                           coordinate system.
-        :type Direction: str
+        :type direction: str
         :param w1: The starting value (magnitude) of the load.
         :type w1: float
         :param w2: The ending value (magnitude) of the load.
@@ -1279,10 +1284,11 @@ class FEModel3D():
         :type case: str, optional
         :raises ValueError: Occurs when an invalid load direction has been specified.
         """
+       
+        # Validate the value of direction
+        if direction not in ('Fx', 'Fy', 'Fz', 'FX', 'FY', 'FZ'):
+            raise ValueError(f"direction must be 'Fx', 'Fy', 'Fz', 'FX', 'FY', or 'FZ'. {direction} was given.")
 
-        # Validate the value of Direction
-        if Direction not in ('Fx', 'Fy', 'Fz', 'FX', 'FY', 'FZ'):
-            raise ValueError(f"Direction must be 'Fx', 'Fy', 'Fz', 'FX', 'FY', or 'FZ'. {Direction} was given.")
         # Determine if a starting and ending points for the load have been specified.
         # If not, use the member start and end as defaults
         if x1 == None:
@@ -1296,8 +1302,8 @@ class FEModel3D():
             end = x2
 
         # Add the distributed load to the member
-        self.Members[Member].DistLoads.append((Direction, w1, w2, start, end, case))
-
+        self.Members[member_name].DistLoads.append((direction, w1, w2, start, end, case))
+        
         # Flag the model as unsolved
         self.solution = None
         
