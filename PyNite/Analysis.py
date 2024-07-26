@@ -2,7 +2,7 @@ import sys
 
 from math import isclose, ceil
 
-from numpy.lib.function_base import interp, gradient
+from numpy import interp, gradient
 
 from PyNite import FEModel3D
 from PyNite.LoadCombo import LoadCombo
