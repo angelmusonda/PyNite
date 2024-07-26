@@ -107,10 +107,9 @@ model.analyze_harmonic(harmonic_combo='H combo',f1 = 40, f2=150,f_div=1000,spars
 
 
 
-
-
-model.analyze_linear_time_history_newmark_beta( analysis_method='direct',
+model.analyze_linear_time_history_HHT_alpha( analysis_method='direct',
                                             combo_name='T combo',
+                                            HHT_alpha=-0.1,
                                             step_size=0.00001,
                                             response_duration=0.1,
                                             log=True, sparse=True)
@@ -121,18 +120,18 @@ print('Natural Frequencies: ',model.NATURAL_FREQUENCIES())
 import matplotlib.pyplot as plt
 
 # Sample data
-#x = model.TIME_THA()
-#dof = model.Nodes['T'].ID * 6 + 3
-#dof2 = model.Nodes['T2'].ID * 6 + 0
+x = model.TIME_THA()
+dof = model.Nodes['T'].ID * 6 + 3
+#dof1 = model.Nodes['T2'].ID * 6 + 0
 dof2 = model.Nodes['A'].ID * 6 + 2
-#y = model.DISPLACEMENT_THA()[dof2,:]
+y = model.DISPLACEMENT_THA()[dof,:]
 # Create a line plot
 #plt.plot(x, y)
 
 x2 = model.LoadFrequencies
 y2 = sqrt(model.REACTIONS_REAL()[dof2,:]**2 + model.REACTIONS_IMAGINARY()[dof2,:]**2)
 #y2 = sqrt(model.VELOCITY_REAL()[dof2,:]**2 + model.VELOCITY_IMAGINARY()[dof2,:]**2)
-plt.plot(x2,y2)
+plt.plot(x,y)
 # Add labels and a title
 plt.xlabel('X-axis')
 plt.ylabel('Y-axis')
@@ -151,9 +150,11 @@ with open('model.pickle', 'wb') as file:
 
 
 from PyNite.Visualization import render_model
+"""
 render_model(model,
              deformed_scale=2,
              deformed_shape=True,
              render_loads=False,
              annotation_size=0.05,
-             combo_name=model.Modal_combo_name)
+             combo_name=model.THA_combo_name)
+"""
