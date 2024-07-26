@@ -2967,11 +2967,12 @@ class FEModel3D():
 
             for node in self.Nodes.values():
 
-                if D2_indices.count(node.ID * 6 + 0) == 1:
-                    D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                else:
-                    D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
-
+                for i in range(6):
+                    if D2_indices.count(node.ID * 6 + i) == 1:
+                        D[node.ID * 6 + i, 0]= D2[D2_indices.index(node.ID * 6 + i), 0]
+                    else:
+                        D[node.ID * 6 + i, 0]= D1[D1_indices.index(node.ID * 6 + i), 0]
+                """
                 if D2_indices.count(node.ID * 6 + 1) == 1:
                     D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
                 else:
@@ -2997,6 +2998,7 @@ class FEModel3D():
                 else:
                     D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
 
+                """
                 MODE_SHAPE_TEMP[:, i] = D[:,0]
 
         # Store the calculated mode shapes
@@ -3342,15 +3344,17 @@ class FEModel3D():
 
                 for node in self.Nodes.values():
 
-                    if D2_indices.count(node.ID * 6 + 0) == 1:
-                        D.itemset((node.ID * 6 + 0, 0), D2[D2_indices.index(node.ID * 6 + 0), 0])
-                        V.itemset((node.ID * 6 + 0, 0), V2[D2_indices.index(node.ID * 6 + 0), 0])
-                        A.itemset((node.ID * 6 + 0, 0), A2[D2_indices.index(node.ID * 6 + 0), 0])
-                    else:
-                        D.itemset((node.ID * 6 + 0, 0), D1[D1_indices.index(node.ID * 6 + 0), 0])
-                        V.itemset((node.ID * 6 + 0, 0), V1[D1_indices.index(node.ID * 6 + 0), 0])
-                        A.itemset((node.ID * 6 + 0, 0), A1[D1_indices.index(node.ID * 6 + 0), 0])
+                    for i in range(6):
+                        if D2_indices.count(node.ID * 6 + i) == 1:
+                            D[node.ID * 6 + i, 0] = D2[D2_indices.index(node.ID * 6 + i), 0]
+                            V[node.ID * 6 + i, 0] = V2[D2_indices.index(node.ID * 6 + i), 0]
+                            A[node.ID * 6 + i, 0] = A2[D2_indices.index(node.ID * 6 + i), 0]
+                        else:
+                            D[node.ID * 6 + i, 0] = D1[D1_indices.index(node.ID * 6 + i), 0]
+                            V[node.ID * 6 + i, 0] = V1[D1_indices.index(node.ID * 6 + i), 0]
+                            A[node.ID * 6 + i, 0] = A1[D1_indices.index(node.ID * 6 + i), 0]
 
+                    """"
                     if D2_indices.count(node.ID * 6 + 1) == 1:
                         D.itemset((node.ID * 6 + 1, 0), D2[D2_indices.index(node.ID * 6 + 1), 0])
                         V.itemset((node.ID * 6 + 1, 0), V2[D2_indices.index(node.ID * 6 + 1), 0])
@@ -3394,7 +3398,7 @@ class FEModel3D():
                         D.itemset((node.ID * 6 + 5, 0), D1[D1_indices.index(node.ID * 6 + 5), 0])
                         V.itemset((node.ID * 6 + 5, 0), V1[D1_indices.index(node.ID * 6 + 5), 0])
                         A.itemset((node.ID * 6 + 5, 0), A1[D1_indices.index(node.ID * 6 + 5), 0])
-
+                    """
                 # Save the all the maximum global displacement vectors for each load frequency
 
                 D_temp[:, k] = D[:, 0]
